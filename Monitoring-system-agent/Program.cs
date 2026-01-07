@@ -10,7 +10,7 @@ namespace Monitoring_system_agent
         private const string _credentialsFile = "";
 
         private readonly ConfigModel? _configModel = null;
-        private readonly ApiClientService _apiClientService;
+        private ApiClientService _apiClientService;
 
         public Program(ApiClientService apiClientService)
         {
@@ -206,7 +206,7 @@ namespace Monitoring_system_agent
                 }
 
                 // POST /api/devices - Create device
-                DeviceModel device = _apiClientService.CreateDeviceAsync();
+                DeviceModel device = await _apiClientService.CreateDeviceAsync();
 
                 // POST /api/devices/{deviceId}/metrics - if fails dont save configuration
 

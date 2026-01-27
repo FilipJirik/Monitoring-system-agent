@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Monitoring_system_agent.Models;
 using Monitoring_system_agent.Services;
 using Monitoring_system_client_service.Services;
@@ -8,27 +9,31 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly ApiClientService _apiClient;
     private readonly LinuxMetricsService _metricsService;
+    private readonly ConfigModel _config;
 
-    private const string _configFile = "agent_config.json";
-    private ConfigModel? _config;
-
-    public Worker(ILogger<Worker> logger, ApiClientService apiClient, LinuxMetricsService metricsService)
+    public Worker(ILogger<Worker> logger, ApiClientService apiClient, LinuxMetricsService metricsService, IOptions<ConfigModel> configOptions)
     {
         _logger = logger;
         _apiClient = apiClient;
         _metricsService = metricsService;
+        _config = configOptions.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!ConfigService.TryLoadConfig(_configFile, out _config) || _config is null)
+        if (string.IsNullOrEmpty(_config.DeviceId) || string.IsNullOrEmpty(_config.ApiKey))
         {
-            _logger.LogCritical("Configuration file not found or invalid. Please run 'setup' first.");
+            _logger.LogCritical("Configuration is invalid. Please run 'setup' or 'register' command first.");
             return;
         }
 
-        _logger.LogInformation($"Agent started for device: {_config.DeviceName}");
+        if (!Guid.TryParse(_config.DeviceId, out Guid deviceId))
+        {
+            _logger.LogCritical("DeviceId '{DeviceId}' is not a valid GUID. Please run 'setup' or 'register' command first.", _config.DeviceId);
+            return;
+        }
 
+        _logger.LogInformation("Agent started for device: {DeviceName}", _config.DeviceName);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -36,22 +41,28 @@ public class Worker : BackgroundService
             {
                 MetricsModel metrics = await _metricsService.GetMetricsAsync();
 
-                _logger.LogInformation($"Sending metrics... CPU: {metrics.CpuUsagePercent}%, NetIn: {metrics.NetworkInKbps} Kbps");
+                _logger.LogInformation(
+                    "Sending metrics... CPU: {CpuUsage}%, NetIn: {NetworkIn} Kbps",
+                    metrics.CpuUsagePercent,
+                    metrics.NetworkInKbps);
 
                 bool success = await _apiClient.SendMetricsAsync(
                     _config.BaseUrl,
-                    _config.DeviceId,
+                    deviceId,
                     _config.ApiKey,
                     metrics);
 
-                if (!success) _logger.LogWarning("Failed to send metrics.");
+                if (!success)
+                {
+                    _logger.LogWarning("Failed to send metrics.");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loop");
+                _logger.LogError(ex, "Error occurred while processing metrics");
             }
 
-            await Task.Delay(_config.Interval, stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(_config.IntervalSeconds), stoppingToken);
         }
     }
 }

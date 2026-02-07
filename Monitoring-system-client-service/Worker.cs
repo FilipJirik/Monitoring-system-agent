@@ -33,7 +33,7 @@ public class Worker : BackgroundService
             return;
         }
 
-        _logger.LogInformation("Agent started for device: {DeviceName}", _config.DeviceName);
+        _logger.LogInformation("Agent started for device: {DeviceId}", _config.DeviceId);
 
         while (!stoppingToken.IsCancellationRequested)
         {

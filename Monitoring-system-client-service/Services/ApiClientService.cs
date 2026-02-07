@@ -10,7 +10,8 @@ public class ApiClientService
     private readonly IHttpClientFactory _httpClientFactory;
 
     private const string _authUrl = "/auth/login";
-    private const string _apiKeyUrl = "/api/devices/regenerate-api-key?name=";
+    private const string _regenerateApiKeyUrl = "/regenerate-api-key";
+    private const string _metricsUrl = "/metrics";
     private const string _devicesUrl = "/api/devices";
 
     private const string _jwtHeader = "Bearer ";
@@ -56,7 +57,30 @@ public class ApiClientService
 
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
 
-        var result = await httpClient.GetAsync($"{baseUrl}{_apiKeyUrl}{deviceName}");
+        var result = await httpClient.GetAsync($"{baseUrl}{_regenerateApiKeyUrl}{deviceName}");
+
+        if (!result.IsSuccessStatusCode)
+            return null;
+
+        return await result.Content.ReadFromJsonAsync<DeviceModel>();
+    }
+
+    /// <summary>
+    /// Retrieves a new API key for a device by its ID using a JWT token for authentication.
+    /// </summary>
+    /// <param name="deviceId">The unique identifier of the device</param>
+    /// <param name="jwtToken">The JWT authentication token</param>
+    /// <param name="baseUrl">The base URL of the API server</param>
+    /// <returns>A DeviceModel containing the device information and API key if successful, null otherwise</returns>
+    public async Task<DeviceModel?> GetNewApiKeyByIdAsync(Guid deviceId, string jwtToken, string baseUrl)
+    {
+        var httpClient = _httpClientFactory.CreateClient();
+
+        RemoveLastSlash(ref baseUrl);
+
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
+
+        var result = await httpClient.GetAsync($"{baseUrl}{_devicesUrl}/{deviceId}{_regenerateApiKeyUrl}");
 
         if (!result.IsSuccessStatusCode)
             return null;
@@ -117,7 +141,7 @@ public class ApiClientService
 
         try
         {
-            var response = await httpClient.PostAsJsonAsync($"{baseUrl}/api/devices/{deviceId}/metrics", metrics);
+            var response = await httpClient.PostAsJsonAsync($"{baseUrl}{_devicesUrl}/{deviceId}{_metricsUrl}", metrics);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -132,7 +156,6 @@ public class ApiClientService
             return false;
         }
     }
-
 
     /// <summary>
     /// Removes the last slash at the end of the URL if present.

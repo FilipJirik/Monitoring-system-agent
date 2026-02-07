@@ -35,37 +35,35 @@ public class SetupService
             && int.TryParse(intervalStr, out int i))
             interval = i;
 
-
         if (argsDict.TryGetValue("server-url", out var serverUrl) &&
             argsDict.TryGetValue("email", out var email) &&
             argsDict.TryGetValue("password", out var password) &&
-            argsDict.TryGetValue("device-name", out var deviceName))
+            argsDict.TryGetValue("device-id", out var deviceId))
         {
             if (string.IsNullOrEmpty(serverUrl) ||
                 string.IsNullOrEmpty(email) ||
                 string.IsNullOrEmpty(password) ||
-                string.IsNullOrEmpty(deviceName))
+                string.IsNullOrEmpty(deviceId))
             {
                 Console.WriteLine("Unable to find passed arguments");
                 return;
             }
 
-            await TryLoginWithDeviceName(serverUrl, email, password, deviceName, interval);
-
+            await TryLoginWithDeviceId(serverUrl, email, password, deviceId, interval);
         }
         else if (argsDict.TryGetValue("server-url", out var serverUri) && 
-                argsDict.TryGetValue("device-id", out var deviceId) &&
+                argsDict.TryGetValue("device-id", out var deviceIdArg) &&
                 argsDict.TryGetValue("api-key", out var apiKey))
         {
             if (string.IsNullOrEmpty(serverUri) ||
-                string.IsNullOrEmpty(deviceId) ||
+                string.IsNullOrEmpty(deviceIdArg) ||
                 string.IsNullOrEmpty(apiKey))
             {
                 Console.WriteLine("Unable to find passed arguments");
                 return;
             }
 
-            await TryLoginWithApiKey(serverUri, deviceId, apiKey, interval);
+            await TryLoginWithApiKey(serverUri, deviceIdArg, apiKey, interval);
         }
         else
         {
@@ -131,7 +129,6 @@ public class SetupService
                 var config = new ConfigModel
                 {
                     BaseUrl = serverUrl!,
-                    DeviceName = newDevice.Name,
                     DeviceId = newDevice.Id.ToString(),
                     ApiKey = newDevice.ApiKey,
                 };
@@ -152,17 +149,22 @@ public class SetupService
     }
 
     /// <summary>
-    /// Attempts to login with email and password, then retrieves the API key for the specified device name.
+    /// Configures the agent using email, password, and device ID by regenerating the API key.
     /// </summary>
     /// <param name="serverUrl">The base URL of the API server</param>
     /// <param name="email">The user's email address</param>
     /// <param name="password">The user's password</param>
-    /// <param name="deviceName">The name of the device to retrieve the API key for</param>
+    /// <param name="deviceId">The unique identifier of the device</param>
     /// <param name="interval">Optional interval in seconds for metrics collection</param>
     /// <returns>True if the configuration was saved successfully, false otherwise</returns>
-    private async Task<bool> TryLoginWithDeviceName(string serverUrl, string email, string password, string deviceName, int? interval)
+    private async Task<bool> TryLoginWithDeviceId(string serverUrl, string email, string password, string deviceId, int? interval)
     {
-        // POST /api/auth/login
+        if (!Guid.TryParse(deviceId, out Guid id))
+        {
+            Console.WriteLine("Invalid device ID format");
+            return false;
+        }
+
         var loginInfo = await _apiClient.LoginAndGetTokenAsync(email, password, serverUrl); 
 
         if (loginInfo is null)
@@ -171,20 +173,17 @@ public class SetupService
             return false;
         }
 
-        var device = await _apiClient.GetNewApiKeyByNameAsync(deviceName, loginInfo.Token, serverUrl);
+        var device = await _apiClient.GetNewApiKeyByIdAsync(id, loginInfo.Token, serverUrl);
 
         if (device is null)
         {
-            Console.WriteLine($"Device '{deviceName}' not found.");
+            Console.WriteLine($"Device with ID '{deviceId}' not found or failed to regenerate API key.");
             return false;
         }
-
-        // POST /api/devices/{deviceId}/metrics - if fails dont save configuration?
 
         var config = new ConfigModel()
         {
             BaseUrl = serverUrl,
-            DeviceName = deviceName,
             DeviceId = device.Id.ToString(),
             ApiKey = device.ApiKey,
         };
@@ -210,14 +209,11 @@ public class SetupService
             return false;
         }
 
-        // POST /api/devices/{deviceId}/metrics - if fails dont save configuration?
-
         var config = new ConfigModel()
         {
             BaseUrl = serverUrl,
             DeviceId = deviceId,
             ApiKey = apiKey,
-            DeviceName = "",
         };
         if (interval is not null)
             config.IntervalSeconds = interval.Value;

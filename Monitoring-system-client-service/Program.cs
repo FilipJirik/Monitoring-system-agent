@@ -1,8 +1,11 @@
 using Monitoring_system_agent.Models;
 using Monitoring_system_agent.Services;
+using Monitoring_system_client_service.CommandHandling;
+using Monitoring_system_client_service.Extensions;
 using Monitoring_system_client_service.Services;
-using System.Runtime.InteropServices;
+using Monitoring_system_client_service.Validation;
 using Tomlyn.Extensions.Configuration;
+
 
 namespace Monitoring_system_client_service
 {
@@ -10,70 +13,60 @@ namespace Monitoring_system_client_service
     {
         public static async Task Main(string[] args)
         {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            try
             {
-                Console.WriteLine("This tool only works on Linux devices");
-                return;
-            }
+                EnvironmentValidator.ThrowIfInvalidPlatform();
 
-            if (args.Length > 0)
+                if (args.Length > 0)
+                {
+                    await ExecuteCommandAsync(args);
+                    return;
+                }
+
+                await RunMonitoringServiceAsync(args);
+            }
+            catch (PlatformNotSupportedException ex)
             {
-                await HandleCommandAsync(args);
-                return;
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                Environment.Exit(1);
             }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Fatal error: {ex.Message}");
+                Environment.Exit(1);
+            }
+        }
 
+        private static async Task ExecuteCommandAsync(string[] args)
+        {
+            var services = new ServiceCollection();
+            services.AddSetupServices();
+
+            using var serviceProvider = services.BuildServiceProvider();
+            var commandHandler = new CommandHandler(serviceProvider.GetRequiredService<SetupService>());
+
+            await commandHandler.ExecuteAsync(args);
+        }
+
+        private static async Task RunMonitoringServiceAsync(string[] args)
+        {
             if (!File.Exists(ConfigService.FileName))
             {
-                Console.WriteLine($"Configuration file '{ConfigService.FileName}' not found.");
-                Console.WriteLine("Please run 'setup' or 'register' command first.");
-                return;
+                throw new FileNotFoundException(
+                    $"Configuration file '{ConfigService.FileName}' not found. " +
+                    $"Please run 'setup' or 'register' command first.");
             }
 
             var builder = Host.CreateApplicationBuilder(args);
 
             builder.Services.AddSystemd();
+            builder.Services.AddMonitoringServices();
 
             builder.Configuration.Sources.Clear();
             builder.Configuration.AddTomlFile(ConfigService.FileName, optional: false, reloadOnChange: true);
 
-            builder.Services.AddHttpClient();
-            builder.Services.AddSingleton<ApiClientService>();
-            builder.Services.AddSingleton<LinuxMetricsService>();
-            builder.Services.AddHostedService<Worker>();
-
             var host = builder.Build();
             await host.RunAsync();
-        }
-
-        private static async Task HandleCommandAsync(string[] args)
-        {
-            var serviceCollection = new ServiceCollection();
-
-            serviceCollection.AddHttpClient();
-            serviceCollection.AddSingleton<ApiClientService>();
-            serviceCollection.AddSingleton<SetupService>();
-
-            var provider = serviceCollection.BuildServiceProvider();
-            var setupService = provider.GetRequiredService<SetupService>();
-
-            string command = args[0];
-
-            switch (command)
-            {
-                case "setup":
-                case "login":
-                    await setupService.RunSetupAsync(args);
-                    break;
-                case "register":
-                    await setupService.RunCreateDeviceAsync(args);
-                    break;
-                case "print-config":
-                    setupService.PrintConfig();
-                    break;
-                default:
-                    Console.WriteLine($"Unknown command: {command}");
-                    break;
-            }
         }
     }
 }

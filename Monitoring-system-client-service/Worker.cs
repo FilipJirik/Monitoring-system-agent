@@ -34,15 +34,25 @@ public class Worker : BackgroundService
         }
 
         _logger.LogInformation("Agent started for device: {DeviceId}", _config.DeviceId);
+        _logger.LogInformation("Server URL: {ServerUrl}", _config.BaseUrl);
+        _logger.LogInformation("Metrics collection interval: {Interval} seconds", _config.IntervalSeconds);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                _logger.LogDebug("Collecting metrics...");
                 MetricsModel metrics = await _metricsService.GetMetricsAsync();
 
+                _logger.LogDebug(
+                    "Metrics collected - CPU: {CpuUsage}%, RAM: {RamUsage}MB, NetIn: {NetworkIn} Kbps, NetOut: {NetworkOut} Kbps",
+                    metrics.CpuUsagePercent,
+                    metrics.RamUsageMb,
+                    metrics.NetworkInKbps,
+                    metrics.NetworkOutKbps);
+
                 _logger.LogInformation(
-                    "Sending metrics... CPU: {CpuUsage}%, NetIn: {NetworkIn} Kbps",
+                    "Sending metrics to server... CPU: {CpuUsage}%, NetIn: {NetworkIn} Kbps",
                     metrics.CpuUsagePercent,
                     metrics.NetworkInKbps);
 
@@ -54,7 +64,11 @@ public class Worker : BackgroundService
 
                 if (!success)
                 {
-                    _logger.LogWarning("Failed to send metrics.");
+                    _logger.LogWarning("Failed to send metrics to server.");
+                }
+                else
+                {
+                    _logger.LogDebug("Metrics sent successfully.");
                 }
             }
             catch (Exception ex)
@@ -62,7 +76,10 @@ public class Worker : BackgroundService
                 _logger.LogError(ex, "Error occurred while processing metrics");
             }
 
+            _logger.LogDebug("Waiting {Interval} seconds before next metric collection...", _config.IntervalSeconds);
             await Task.Delay(TimeSpan.FromSeconds(_config.IntervalSeconds), stoppingToken);
         }
+
+        _logger.LogInformation("Worker service is stopping.");
     }
 }

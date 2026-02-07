@@ -34,12 +34,34 @@ public class ApiClientService
 
         RemoveLastSlash(ref baseUrl);
 
-        var result = await httpClient.PostAsJsonAsync($"{baseUrl}{_authUrl}", new { email, password });
+        string endpoint = $"{baseUrl}{_authUrl}";
+        Console.WriteLine($"[DEBUG] Attempting login...");
+        Console.WriteLine($"[DEBUG] Endpoint: POST {endpoint}");
+        Console.WriteLine($"[DEBUG] Email: {email}");
 
-        if (!result.IsSuccessStatusCode)
+        try
+        {
+            var result = await httpClient.PostAsJsonAsync(endpoint, new { email, password });
+
+            Console.WriteLine($"[DEBUG] Login response status: {result.StatusCode}");
+
+            if (!result.IsSuccessStatusCode)
+            {
+                var errorContent = await result.Content.ReadAsStringAsync();
+                Console.WriteLine($"[DEBUG] Login failed. Error: {errorContent}");
+                return null;
+            }
+
+            var loginData = await result.Content.ReadFromJsonAsync<LoginModel>();
+            Console.WriteLine($"[DEBUG] Login successful. Token received (length: {loginData?.Token?.Length ?? 0} characters)");
+            return loginData;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Login exception: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
             return null;
-
-        return await result.Content.ReadFromJsonAsync<LoginModel>();
+        }
     }
 
     /// <summary>
@@ -57,12 +79,34 @@ public class ApiClientService
 
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
 
-        var result = await httpClient.GetAsync($"{baseUrl}{_regenerateApiKeyUrl}{deviceName}");
+        string endpoint = $"{baseUrl}{_devicesUrl}?name={deviceName}{_regenerateApiKeyUrl}";
+        Console.WriteLine($"[DEBUG] Attempting to regenerate API key by device name...");
+        Console.WriteLine($"[DEBUG] Endpoint: GET {endpoint}");
+        Console.WriteLine($"[DEBUG] Device name: {deviceName}");
 
-        if (!result.IsSuccessStatusCode)
+        try
+        {
+            var result = await httpClient.GetAsync(endpoint);
+
+            Console.WriteLine($"[DEBUG] API key regeneration response status: {result.StatusCode}");
+
+            if (!result.IsSuccessStatusCode)
+            {
+                var errorContent = await result.Content.ReadAsStringAsync();
+                Console.WriteLine($"[DEBUG] API key regeneration failed. Error: {errorContent}");
+                return null;
+            }
+
+            var deviceData = await result.Content.ReadFromJsonAsync<DeviceModel>();
+            Console.WriteLine($"[DEBUG] API key regeneration successful. Device ID: {deviceData?.Id}");
+            return deviceData;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] API key regeneration exception: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
             return null;
-
-        return await result.Content.ReadFromJsonAsync<DeviceModel>();
+        }
     }
 
     /// <summary>
@@ -80,12 +124,34 @@ public class ApiClientService
 
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
 
-        var result = await httpClient.GetAsync($"{baseUrl}{_devicesUrl}/{deviceId}{_regenerateApiKeyUrl}");
+        string endpoint = $"{baseUrl}{_devicesUrl}/{deviceId}{_regenerateApiKeyUrl}";
+        Console.WriteLine($"[DEBUG] Attempting to regenerate API key by device ID...");
+        Console.WriteLine($"[DEBUG] Endpoint: GET {endpoint}");
+        Console.WriteLine($"[DEBUG] Device ID: {deviceId}");
 
-        if (!result.IsSuccessStatusCode)
+        try
+        {
+            var result = await httpClient.GetAsync(endpoint);
+
+            Console.WriteLine($"[DEBUG] API key regeneration response status: {result.StatusCode}");
+
+            if (!result.IsSuccessStatusCode)
+            {
+                var errorContent = await result.Content.ReadAsStringAsync();
+                Console.WriteLine($"[DEBUG] API key regeneration failed. Error: {errorContent}");
+                return null;
+            }
+
+            var deviceData = await result.Content.ReadFromJsonAsync<DeviceModel>();
+            Console.WriteLine($"[DEBUG] API key regeneration successful. Device ID: {deviceData?.Id}");
+            return deviceData;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] API key regeneration exception: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
             return null;
-
-        return await result.Content.ReadFromJsonAsync<DeviceModel>();
+        }
     }
 
     /// <summary>
@@ -114,12 +180,37 @@ public class ApiClientService
             MacAddress = mac
         };
 
-        var result = await httpClient.PostAsJsonAsync($"{baseUrl}{_devicesUrl}", createModel);
+        string endpoint = $"{baseUrl}{_devicesUrl}";
+        Console.WriteLine($"[DEBUG] Attempting to create new device...");
+        Console.WriteLine($"[DEBUG] Endpoint: POST {endpoint}");
+        Console.WriteLine($"[DEBUG] Device name: {name}");
+        Console.WriteLine($"[DEBUG] Device OS: {os}");
+        Console.WriteLine($"[DEBUG] Device IP: {ip}");
+        Console.WriteLine($"[DEBUG] Device MAC: {mac}");
 
-        if (!result.IsSuccessStatusCode) 
+        try
+        {
+            var result = await httpClient.PostAsJsonAsync(endpoint, createModel);
+
+            Console.WriteLine($"[DEBUG] Device creation response status: {result.StatusCode}");
+
+            if (!result.IsSuccessStatusCode)
+            {
+                var errorContent = await result.Content.ReadAsStringAsync();
+                Console.WriteLine($"[DEBUG] Device creation failed. Error: {errorContent}");
+                return null;
+            }
+
+            var deviceData = await result.Content.ReadFromJsonAsync<DeviceModel>();
+            Console.WriteLine($"[DEBUG] Device creation successful. Device ID: {deviceData?.Id}, Device name: {deviceData?.Name}");
+            return deviceData;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Device creation exception: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
             return null;
-
-        return await result.Content.ReadFromJsonAsync<DeviceModel>();
+        }
     }
 
     /// <summary>
@@ -139,20 +230,32 @@ public class ApiClientService
         httpClient.DefaultRequestHeaders.Clear();
         httpClient.DefaultRequestHeaders.Add(_apiKeyHeader, apiKey);
 
+        string endpoint = $"{baseUrl}{_devicesUrl}/{deviceId}{_metricsUrl}";
+        Console.WriteLine($"[DEBUG] Sending metrics to server...");
+        Console.WriteLine($"[DEBUG] Endpoint: POST {endpoint}");
+        Console.WriteLine($"[DEBUG] Device ID: {deviceId}");
+        Console.WriteLine($"[DEBUG] Metrics - CPU: {metrics.CpuUsagePercent}%, RAM: {metrics.RamUsageMb}MB, Net In: {metrics.NetworkInKbps} Kbps, Net Out: {metrics.NetworkOutKbps} Kbps");
+
         try
         {
-            var response = await httpClient.PostAsJsonAsync($"{baseUrl}{_devicesUrl}/{deviceId}{_metricsUrl}", metrics);
+            var response = await httpClient.PostAsJsonAsync(endpoint, metrics);
+
+            Console.WriteLine($"[DEBUG] Metrics send response status: {response.StatusCode}");
 
             if (!response.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadAsStringAsync();
-                Console.WriteLine(error);
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"[DEBUG] Metrics send failed. Error: {errorContent}");
+                return false;
             }
 
-            return response.IsSuccessStatusCode;
+            Console.WriteLine($"[DEBUG] Metrics sent successfully");
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"[ERROR] Metrics send exception: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
             return false;
         }
     }

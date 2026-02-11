@@ -1,23 +1,16 @@
-﻿using System;
-using System.Linq;
-using System.Threading.Tasks;
-using Monitoring_system_agent.Models;
+﻿using Monitoring_system_agent.Models;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 
 namespace Monitoring_system_agent.Services;
 
-/// <summary>
-/// Service for collecting Linux system metrics including CPU, memory, disk, and network statistics.
-/// </summary>
 public class LinuxMetricsService
 {
     private readonly ILogger<LinuxMetricsService> _logger;
-    private long _prevCpuTotalTicks = 0;
-    private long _prevCpuIdleTicks = 0;
-
-    private long _prevNetInBytes = 0;
-    private long _prevNetOutBytes = 0;
+    private long _prevCpuTotalTicks;
+    private long _prevCpuIdleTicks;
+    private long _prevNetInBytes;
+    private long _prevNetOutBytes;
     private DateTimeOffset _lastCollectionTime = DateTimeOffset.MinValue;
 
     public LinuxMetricsService(ILogger<LinuxMetricsService> logger)
@@ -25,10 +18,6 @@ public class LinuxMetricsService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Collects all system metrics and returns them as a MetricsModel.
-    /// </summary>
-    /// <returns>A MetricsModel containing all collected system metrics</returns>
     public async Task<MetricsModel> GetMetricsAsync()
     {
         var metrics = new MetricsModel
@@ -37,75 +26,38 @@ public class LinuxMetricsService
             UptimeSeconds = GetUptime()
         };
 
-        try { 
-            await ParseCpuUsage(metrics); 
-        } 
-        catch (Exception ex) 
-        { 
-            _logger.LogError(ex, "Error CPU Usage"); 
-        }
-        try 
-        { 
-            await ParseCpuFreq(metrics); 
-        } 
-        catch (Exception ex) 
-        {
-            _logger.LogError(ex, "Error CPU Freq"); 
-        }
-        try 
-        {
-            await ParseCpuTemp(metrics); 
-        } 
-        catch (Exception ex) 
-        { 
-            _logger.LogError(ex, "Error CPU Temp"); 
-        }
-        try 
-        { 
-            await ParseRam(metrics); 
-        } 
-        catch (Exception ex) 
-        {
-            _logger.LogError(ex, "Error RAM"); 
-        }
-        try 
-        { 
-            ParseDisk(metrics); 
-        } 
-        catch (Exception ex) 
-        { 
-            _logger.LogError(ex, "Error Disk"); 
-        }
-        try 
-        { 
-            await ParseNetwork(metrics); 
-        } 
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error Network"); 
-        }
+        try { await ParseCpuUsage(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting CPU usage"); }
+
+        try { await ParseCpuFreq(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting CPU frequency"); }
+
+        try { await ParseCpuTemp(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting CPU temperature"); }
+
+        try { await ParseRam(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting RAM usage"); }
+
+        try { ParseDisk(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting disk usage"); }
+
+        try { await ParseNetwork(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting network stats"); }
 
         return metrics;
     }
 
-    /// <summary>
-    /// Parses CPU usage percentage from /proc/stat.
-    /// </summary>
-    /// <param name="metrics">The metrics model to update with CPU usage data</param>
     private async Task ParseCpuUsage(MetricsModel metrics)
     {
         if (!File.Exists("/proc/stat")) return;
+
         string line = (await File.ReadAllLinesAsync("/proc/stat"))[0];
         var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
 
         long idle = long.Parse(parts[4]);
         long iowait = long.Parse(parts[5]);
         long currentIdle = idle + iowait;
-
-        long currentTotal = 0;
-        
-        for (int i = 1; i < parts.Length && i < 8; i++)
-            if (long.TryParse(parts[i], out long val)) currentTotal += val;
+        long currentTotal = parts.Skip(1).Take(7).Sum(p => long.TryParse(p, out long v) ? v : 0);
 
         if (_prevCpuTotalTicks > 0)
         {
@@ -113,20 +65,13 @@ public class LinuxMetricsService
             long deltaIdle = currentIdle - _prevCpuIdleTicks;
 
             if (deltaTotal > 0)
-            {
-                double usage = (1.0 - ((double)deltaIdle / deltaTotal)) * 100.0;
-                metrics.CpuUsagePercent = Math.Round(usage, 2);
-            }
+                metrics.CpuUsagePercent = Math.Round((1.0 - ((double)deltaIdle / deltaTotal)) * 100.0, 2);
         }
 
         _prevCpuTotalTicks = currentTotal;
         _prevCpuIdleTicks = currentIdle;
     }
 
-    /// <summary>
-    /// Parses average CPU frequency from /proc/cpuinfo.
-    /// </summary>
-    /// <param name="metrics">The metrics model to update with CPU frequency data</param>
     private async Task ParseCpuFreq(MetricsModel metrics)
     {
         if (!File.Exists("/proc/cpuinfo")) return;
@@ -149,37 +94,25 @@ public class LinuxMetricsService
         }
 
         if (coreCount > 0)
-        {
             metrics.CpuFreqAvgMhz = (long)(totalMhz / coreCount);
-        }
     }
 
-    /// <summary>
-    /// Parses CPU temperature from the thermal zone file.
-    /// </summary>
-    /// <param name="metrics">The metrics model to update with CPU temperature data</param>
     private async Task ParseCpuTemp(MetricsModel metrics)
     {
-        string path = "/sys/class/thermal/thermal_zone0/temp"; // most common, but not all use it
+        string path = "/sys/class/thermal/thermal_zone0/temp";
         if (File.Exists(path))
         {
             string text = await File.ReadAllTextAsync(path);
             if (double.TryParse(text.Trim(), out double tempMilli))
-            {
                 metrics.CpuTempCelsius = Math.Round(tempMilli / 1000.0, 1);
-            }
         }
     }
 
-    /// <summary>
-    /// Parses RAM usage from /proc/meminfo.
-    /// </summary>
-    /// <param name="metrics">The metrics model to update with RAM usage data</param>
     private async Task ParseRam(MetricsModel metrics)
     {
         if (!File.Exists("/proc/meminfo")) return;
-        var lines = await File.ReadAllLinesAsync("/proc/meminfo");
 
+        var lines = await File.ReadAllLinesAsync("/proc/meminfo");
         long totalKb = 0;
         long availableKb = 0;
 
@@ -193,16 +126,9 @@ public class LinuxMetricsService
         }
 
         if (totalKb > 0)
-        {
-            long usedKb = totalKb - availableKb;
-            metrics.RamUsageMb = usedKb / 1024;
-        }
+            metrics.RamUsageMb = (totalKb - availableKb) / 1024;
     }
 
-    /// <summary>
-    /// Parses disk usage for the root filesystem using DriveInfo.
-    /// </summary>
-    /// <param name="metrics">The metrics model to update with disk usage data</param>
     private void ParseDisk(MetricsModel metrics)
     {
         var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name == "/" && d.IsReady);
@@ -214,13 +140,9 @@ public class LinuxMetricsService
         }
     }
 
-    /// <summary>
-    /// Parses network statistics from /proc/net/dev and calculates network throughput in Kbps.
-    /// </summary>
-    /// <param name="metrics">The metrics model to update with network statistics</param>
     private async Task ParseNetwork(MetricsModel metrics)
     {
-        if (!File.Exists("/proc/net/dev")) 
+        if (!File.Exists("/proc/net/dev"))
             return;
 
         var lines = await File.ReadAllLinesAsync("/proc/net/dev");
@@ -230,34 +152,22 @@ public class LinuxMetricsService
         foreach (var line in lines.Skip(2))
         {
             var parts = line.Trim().Split(new[] { ' ', ':' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 10) 
+            if (parts.Length < 10 || parts[0] == "lo")
                 continue;
 
-            // loopback
-            if (parts[0] == "lo")
-                continue;
-
-            // parts[0] = interface name, parts[1] = RX bytes, parts[9] = TX bytes
             if (long.TryParse(parts[1], out long rx)) currentIn += rx;
             if (long.TryParse(parts[9], out long tx)) currentOut += tx;
         }
 
         var now = DateTimeOffset.UtcNow;
 
-        // if not first run - need starting value for comparing
         if (_lastCollectionTime != DateTimeOffset.MinValue)
         {
             double seconds = (now - _lastCollectionTime).TotalSeconds;
             if (seconds > 0)
             {
-                long deltaIn = currentIn - _prevNetInBytes;
-                long deltaOut = currentOut - _prevNetOutBytes;
-
-                if (deltaIn < 0) 
-                    deltaIn = 0;
-
-                if (deltaOut < 0) 
-                    deltaOut = 0;
+                long deltaIn = Math.Max(0, currentIn - _prevNetInBytes);
+                long deltaOut = Math.Max(0, currentOut - _prevNetOutBytes);
 
                 metrics.NetworkInKbps = Math.Round((deltaIn * 8.0) / 1000.0 / seconds, 2);
                 metrics.NetworkOutKbps = Math.Round((deltaOut * 8.0) / 1000.0 / seconds, 2);
@@ -269,10 +179,6 @@ public class LinuxMetricsService
         _lastCollectionTime = now;
     }
 
-    /// <summary>
-    /// Retrieves the system uptime in seconds from /proc/uptime.
-    /// </summary>
-    /// <returns>The uptime in seconds, or null if unable to determine</returns>
     private long? GetUptime()
     {
         try

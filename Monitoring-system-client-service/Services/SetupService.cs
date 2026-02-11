@@ -4,9 +4,6 @@ using System.Runtime.InteropServices;
 
 namespace Monitoring_system_client_service.Services;
 
-/// <summary>
-/// Service for handling device setup, registration, and configuration management.
-/// </summary>
 public class SetupService
 {
     private readonly ApiClientService _apiClient;
@@ -16,311 +13,176 @@ public class SetupService
         _apiClient = apiClient;
     }
 
-    /// <summary>
-    /// Runs the setup process by parsing command-line arguments and configuring the agent.
-    /// Supports two modes:
-    /// 1. Login with credentials and device ID to regenerate API key
-    /// 2. Direct configuration with device ID and API key
-    /// </summary>
-    /// <param name="args">Command-line arguments containing server URL, credentials, and device information</param>
     public async Task RunSetupAsync(string[] args)
     {
-        Console.WriteLine("[INFO] Running setup...");
-
         var argsDict = ParseArgs(args.Skip(1).ToArray());
-        Console.WriteLine($"[DEBUG] Parsed {argsDict.Count} arguments");
 
-        int? interval = ExtractInterval(argsDict);
-
-        if (TryLoginWithCredentialsAndDeviceId(argsDict, interval))
-        {
+        if (await TrySetupWithCredentials(argsDict))
             return;
-        }
 
-        if (TrySetupWithApiKey(argsDict, interval))
-        {
+        if (await TrySetupWithApiKey(argsDict))
             return;
-        }
 
         Console.WriteLine("[ERROR] Invalid arguments. Expected one of:");
         Console.WriteLine("  1. --server-url --email --password --device-id [--interval]");
         Console.WriteLine("  2. --server-url --device-id --api-key [--interval]");
     }
 
-    private int? ExtractInterval(Dictionary<string, string?> argsDict)
+    public async Task RunRegisterAsync(string[] args)
     {
-        if (argsDict.TryGetValue("interval", out var intervalStr) 
-            && int.TryParse(intervalStr, out int i))
-        {
-            Console.WriteLine($"[DEBUG] Interval set to {i} seconds");
-            return i;
-        }
-        return null;
-    }
+        var argsDict = ParseArgs(args.Skip(1).ToArray());
 
-    private bool TryLoginWithCredentialsAndDeviceId(Dictionary<string, string?> argsDict, int? interval)
-    {
         if (!argsDict.TryGetValue("server-url", out var serverUrl) ||
             !argsDict.TryGetValue("email", out var email) ||
             !argsDict.TryGetValue("password", out var password) ||
-            !argsDict.TryGetValue("device-id", out var deviceId))
+            !argsDict.TryGetValue("device-name", out var deviceName) ||
+            string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(email) ||
+            string.IsNullOrEmpty(password) || string.IsNullOrEmpty(deviceName))
         {
-            return false;
-        }
-
-        if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(email) || 
-            string.IsNullOrEmpty(password) || string.IsNullOrEmpty(deviceId))
-        {
-            Console.WriteLine("[ERROR] Unable to find passed arguments");
-            return false;
-        }
-
-        Console.WriteLine("[DEBUG] Setup mode: Login with credentials and device ID");
-        _ = TryLoginWithDeviceId(serverUrl, email, password, deviceId, interval).Result;
-        return true;
-    }
-
-    private bool TrySetupWithApiKey(Dictionary<string, string?> argsDict, int? interval)
-    {
-        if (!argsDict.TryGetValue("server-url", out var serverUrl) ||
-            !argsDict.TryGetValue("device-id", out var deviceId) ||
-            !argsDict.TryGetValue("api-key", out var apiKey))
-        {
-            return false;
-        }
-
-        if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(apiKey))
-        {
-            Console.WriteLine("[ERROR] Unable to find passed arguments");
-            return false;
-        }
-
-        Console.WriteLine("[DEBUG] Setup mode: Direct API key configuration");
-        _ = TryLoginWithApiKey(serverUrl, deviceId, apiKey, interval).Result;
-        return true;
-    }
-
-    /// <summary>
-    /// Runs the automatic device registration process by creating a new device on the server.
-    /// </summary>
-    /// <param name="args">Command-line arguments containing server URL, email, password, and device name</param>
-    public async Task RunCreateDeviceAsync(string[] args)
-    {
-        Console.WriteLine("[INFO] Running automatic registration...");
-
-        var argsDict = ParseArgs(args.Skip(1).ToArray());
-        Console.WriteLine($"[DEBUG] Parsed {argsDict.Count} arguments");
-
-        int? interval = null;
-
-        if (argsDict.TryGetValue("interval", out var intervalStr)
-            && int.TryParse(intervalStr, out int i))
-        {
-            interval = i;
-            Console.WriteLine($"[DEBUG] Interval set to {interval} seconds");
-        }
-
-        if (argsDict.TryGetValue("server-url", out var serverUrl) &&
-            argsDict.TryGetValue("email", out var email) &&
-            argsDict.TryGetValue("password", out var password) &&
-            argsDict.TryGetValue("device-name", out var deviceName))
-        {
-            if (string.IsNullOrEmpty(serverUrl) ||
-                string.IsNullOrEmpty(email) ||
-                string.IsNullOrEmpty(password) ||
-                string.IsNullOrEmpty(deviceName))
-            {
-                Console.WriteLine("[ERROR] Unable to find passed arguments");
-                return;
-            }
-
-            Console.WriteLine("[DEBUG] Registering device: " + deviceName);
-
-            var loginInfo = await _apiClient.LoginAndGetTokenAsync(email!, password!, serverUrl!);
-
-            if (loginInfo == null)
-            {
-                Console.WriteLine("[ERROR] Unable to login using email and password");
-                return;
-            }
-
-            string hostName = System.Net.Dns.GetHostName();
-            string osDescription = RuntimeInformation.OSDescription; 
-            string ipAddress = SystemInfoService.GetLocalIpAddress();
-            string macAddress = SystemInfoService.GetMacAddress();
-
-            Console.WriteLine($"[DEBUG] Device details - HostName: {hostName}, IP: {ipAddress}, MAC: {macAddress}");
-
-            var newDevice = await _apiClient.CreateDeviceAsync(
-                deviceName!,
-                osDescription,
-                ipAddress,
-                macAddress,
-                loginInfo.Token,
-                serverUrl!
-            );
-
-            if (newDevice is not null)
-            {
-                var config = new ConfigModel
-                {
-                    BaseUrl = serverUrl!,
-                    DeviceId = newDevice.Id.ToString(),
-                    ApiKey = newDevice.ApiKey,
-                };
-                if (interval is not null)
-                    config.IntervalSeconds = interval.Value;
-
-                if (!SaveAndPrintMessage(config))
-                    return;
-            }
-            else
-            {
-                Console.WriteLine("[ERROR] Failed to create device.");
-            }
+            Console.WriteLine("[ERROR] Missing required arguments for registration");
             return;
         }
 
-        Console.WriteLine("[ERROR] Missing arguments for registration.");
+        var loginInfo = await _apiClient.LoginAsync(email, password, serverUrl);
+        if (loginInfo == null)
+        {
+            Console.WriteLine("[ERROR] Login failed");
+            return;
+        }
+
+        string osDescription = RuntimeInformation.OSDescription;
+        string ipAddress = SystemInfoService.GetLocalIpAddress();
+        string macAddress = SystemInfoService.GetMacAddress();
+
+        var newDevice = await _apiClient.CreateDeviceAsync(
+            deviceName, osDescription, ipAddress, macAddress,
+            loginInfo.Token, serverUrl);
+
+        if (newDevice == null)
+        {
+            Console.WriteLine("[ERROR] Failed to create device");
+            return;
+        }
+
+        var config = new ConfigModel
+        {
+            BaseUrl = serverUrl,
+            DeviceId = newDevice.Id.ToString(),
+            ApiKey = newDevice.ApiKey,
+        };
+
+        if (argsDict.TryGetValue("interval", out var intervalStr) &&
+            int.TryParse(intervalStr, out int interval))
+            config.IntervalSeconds = interval;
+
+        SaveConfig(config);
     }
 
-    /// <summary>
-    /// Configures the agent using email, password, and device ID by regenerating the API key.
-    /// </summary>
-    /// <param name="serverUrl">The base URL of the API server</param>
-    /// <param name="email">The user's email address</param>
-    /// <param name="password">The user's password</param>
-    /// <param name="deviceId">The unique identifier of the device</param>
-    /// <param name="interval">Optional interval in seconds for metrics collection</param>
-    /// <returns>True if the configuration was saved successfully, false otherwise</returns>
-    private async Task<bool> TryLoginWithDeviceId(string serverUrl, string email, string password, string deviceId, int? interval)
+    public void PrintConfig()
     {
-        Console.WriteLine("[DEBUG] Validating device ID format...");
+        string? content = ConfigService.ReadConfig();
+        if (content == null)
+        {
+            Console.WriteLine("[ERROR] Configuration file not found");
+            return;
+        }
+        Console.WriteLine(content);
+    }
+
+    private async Task<bool> TrySetupWithCredentials(Dictionary<string, string?> args)
+    {
+        if (!args.TryGetValue("server-url", out var serverUrl) ||
+            !args.TryGetValue("email", out var email) ||
+            !args.TryGetValue("password", out var password) ||
+            !args.TryGetValue("device-id", out var deviceId) ||
+            string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(email) ||
+            string.IsNullOrEmpty(password) || string.IsNullOrEmpty(deviceId))
+            return false;
+
         if (!Guid.TryParse(deviceId, out Guid id))
         {
             Console.WriteLine("[ERROR] Invalid device ID format");
             return false;
         }
-        Console.WriteLine($"[DEBUG] Device ID validated: {id}");
 
-        Console.WriteLine("[DEBUG] Attempting to login...");
-        var loginInfo = await _apiClient.LoginAndGetTokenAsync(email, password, serverUrl); 
-
-        if (loginInfo is null)
+        var loginInfo = await _apiClient.LoginAsync(email, password, serverUrl);
+        if (loginInfo == null)
         {
-            Console.WriteLine("[ERROR] Unable to login using email and password");
+            Console.WriteLine("[ERROR] Login failed");
             return false;
         }
 
-        Console.WriteLine("[DEBUG] Login successful, attempting to regenerate API key...");
-        var device = await _apiClient.GetNewApiKeyByIdAsync(id, loginInfo.Token, serverUrl);
-
-        if (device is null)
+        var device = await _apiClient.GetApiKeyByIdAsync(id, loginInfo.Token, serverUrl);
+        if (device == null)
         {
-            Console.WriteLine($"[ERROR] Device with ID '{deviceId}' not found or failed to regenerate API key.");
+            Console.WriteLine("[ERROR] Device not found or failed to regenerate API key");
             return false;
         }
 
-        Console.WriteLine("[DEBUG] Preparing configuration file...");
-        var config = new ConfigModel()
+        var config = new ConfigModel
         {
             BaseUrl = serverUrl,
             DeviceId = device.Id.ToString(),
             ApiKey = device.ApiKey,
         };
-        if (interval is not null) 
-            config.IntervalSeconds = interval.Value;
 
-        return SaveAndPrintMessage(config);
+        if (args.TryGetValue("interval", out var intervalStr) &&
+            int.TryParse(intervalStr, out int interval))
+            config.IntervalSeconds = interval;
+
+        return SaveConfig(config);
     }
 
-    /// <summary>
-    /// Configures the agent using an existing device ID and API key without requiring login.
-    /// </summary>
-    /// <param name="serverUrl">The base URL of the API server</param>
-    /// <param name="deviceId">The unique identifier of the device</param>
-    /// <param name="apiKey">The API key for the device</param>
-    /// <param name="interval">Optional interval in seconds for metrics collection</param>
-    /// <returns>True if the configuration was saved successfully, false otherwise</returns>
-    private async Task<bool> TryLoginWithApiKey(string serverUrl, string deviceId, string apiKey, int? interval)
+    private async Task<bool> TrySetupWithApiKey(Dictionary<string, string?> args)
     {
-        Console.WriteLine("[DEBUG] Validating device ID format...");
-        if (!Guid.TryParse(deviceId, out Guid id))
+        if (!args.TryGetValue("server-url", out var serverUrl) ||
+            !args.TryGetValue("device-id", out var deviceId) ||
+            !args.TryGetValue("api-key", out var apiKey) ||
+            string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(deviceId) ||
+            string.IsNullOrEmpty(apiKey))
+            return false;
+
+        if (!Guid.TryParse(deviceId, out _))
         {
-            Console.WriteLine("[ERROR] Unable to convert Device ID into proper form");
+            Console.WriteLine("[ERROR] Invalid device ID format");
             return false;
         }
-        Console.WriteLine($"[DEBUG] Device ID validated: {id}");
 
-        Console.WriteLine("[DEBUG] Preparing configuration file...");
-        var config = new ConfigModel()
+        var config = new ConfigModel
         {
             BaseUrl = serverUrl,
             DeviceId = deviceId,
             ApiKey = apiKey,
         };
-        if (interval is not null)
-            config.IntervalSeconds = interval.Value;
 
-        return SaveAndPrintMessage(config);
-    }
-    /// <summary>
-    /// Displays the contents of the configuration file to the console.
-    /// </summary>
-    public void PrintConfig()
-    {
-        Console.WriteLine("[INFO] Displaying configuration file...");
+        if (args.TryGetValue("interval", out var intervalStr) &&
+            int.TryParse(intervalStr, out int interval))
+            config.IntervalSeconds = interval;
 
-        string? content = ConfigService.TryReadFile();
-
-        if (content is null)
-        {
-            Console.WriteLine("[ERROR] Error while loading file");
-            return;
-        }
-
-        Console.WriteLine(content);
+        return SaveConfig(config);
     }
 
-    /// <summary>
-    /// Saves the configuration model to a file and displays success messages.
-    /// </summary>
-    /// <param name="model">The configuration model to save</param>
-    /// <returns>True if the configuration was saved successfully, false otherwise</returns>
-    private bool SaveAndPrintMessage(ConfigModel model)
+    private bool SaveConfig(ConfigModel model)
     {
-        Console.WriteLine($"[DEBUG] Saving configuration to {ConfigService.FileName}...");
-        if (ConfigService.TrySaveFile(model))
+        if (ConfigService.SaveConfig(model))
         {
-            Console.WriteLine("[INFO] Setup complete...");
             Console.WriteLine("[INFO] Configuration saved successfully");
-            Console.WriteLine("[INFO] Start the service: sudo systemctl start monitoring-agent");
             return true;
         }
-        Console.WriteLine("[ERROR] Failed to save configuration file");
+        Console.WriteLine("[ERROR] Failed to save configuration");
         return false;
     }
 
-    /// <summary>
-    /// Parses command-line arguments into a dictionary of key-value pairs.
-    /// </summary>
-    /// <param name="args">Array of command-line arguments in the format --key=value</param>
-    /// <returns>A dictionary containing parsed arguments</returns>
     private static Dictionary<string, string?> ParseArgs(string[] args)
     {
         var dict = new Dictionary<string, string?>();
-
         foreach (var arg in args)
         {
             if (!arg.StartsWith("--"))
                 continue;
 
             var parts = arg.Substring(2).Split('=', 2);
-
-            string key = parts[0];
-            string? value = parts.Length == 2 ? parts[1] : null;
-
-            dict[key] = value;
+            dict[parts[0]] = parts.Length == 2 ? parts[1] : null;
         }
         return dict;
     }

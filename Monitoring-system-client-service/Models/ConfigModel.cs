@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Monitoring_system_agent.Models
+﻿namespace Monitoring_system_agent.Models
 {
     public class ConfigModel
     {

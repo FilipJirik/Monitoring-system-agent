@@ -1,100 +1,76 @@
 using Monitoring_system_client_service.Services;
 
-namespace Monitoring_system_client_service.CommandHandling
+namespace Monitoring_system_client_service.CommandHandling;
+
+public class CommandHandler
 {
-    /// <summary>
-    /// Handler for command-line interface operations.
-    /// </summary>
-    public class CommandHandler
+    private readonly SetupService _setupService;
+
+    public CommandHandler(SetupService setupService)
     {
-        private readonly SetupService _setupService;
+        _setupService = setupService;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the CommandHandler class.
-        /// </summary>
-        /// <param name="setupService">Service for handling setup operations</param>
-        public CommandHandler(SetupService setupService)
+    public async Task ExecuteCommandAsync(string[] args)
+    {
+        if (args.Length == 0)
         {
-            _setupService = setupService;
+            PrintUsage();
+            return;
         }
 
-        /// <summary>
-        /// Executes a command based on the provided arguments.
-        /// </summary>
-        /// <param name="args">Command-line arguments</param>
-        public async Task ExecuteAsync(string[] args)
+        try
         {
-            if (args.Length == 0)
+            switch (args[0].ToLowerInvariant())
             {
-                PrintUsage();
-                return;
-            }
-
-            string command = args[0].ToLowerInvariant();
-
-            try
-            {
-                switch (command)
-                {
-                    case "setup":
-                    case "login":
-                        await _setupService.RunSetupAsync(args);
-                        break;
-                    case "register":
-                        await _setupService.RunCreateDeviceAsync(args);
-                        break;
-                    case "print-config":
-                        _setupService.PrintConfig();
-                        break;
-                    case "help":
-                    case "--help":
-                    case "-h":
-                        PrintUsage();
-                        break;
-                    default:
-                        Console.WriteLine($"[ERROR] Unknown command: {command}");
-                        PrintUsage();
-                        break;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ERROR] Command execution failed: {ex.Message}");
-                if (!string.IsNullOrEmpty(ex.StackTrace))
-                {
-                    Console.WriteLine($"[DEBUG] Stack trace: {ex.StackTrace}");
-                }
+                case "setup":
+                case "login":
+                    await _setupService.RunSetupAsync(args);
+                    break;
+                case "register":
+                    await _setupService.RunRegisterAsync(args);
+                    break;
+                case "print-config":
+                    _setupService.PrintConfig();
+                    break;
+                case "help":
+                case "--help":
+                case "-h":
+                    PrintUsage();
+                    break;
+                default:
+                    Console.WriteLine($"[ERROR] Unknown command: {args[0]}");
+                    PrintUsage();
+                    break;
             }
         }
-
-        /// <summary>
-        /// Displays usage information and available commands.
-        /// </summary>
-        private static void PrintUsage()
+        catch (Exception ex)
         {
-            Console.WriteLine("Monitoring System Client Service");
-            Console.WriteLine();
-            Console.WriteLine("Usage:");
-            Console.WriteLine("  setup              Initialize and configure the client");
-            Console.WriteLine("  login              Initialize and configure the client (alias for setup)");
-            Console.WriteLine("  register           Register a new device");
-            Console.WriteLine("  print-config       Display the current configuration");
-            Console.WriteLine("  help               Show this help message");
-            Console.WriteLine();
-            Console.WriteLine("Setup/Login Examples:");
-            Console.WriteLine("  Regenerate API key using email and password:");
-            Console.WriteLine("    setup --server-url=<url> --email=<email> --password=<password> --device-id=<deviceId>");
-            Console.WriteLine();
-            Console.WriteLine("  Configure using existing device ID and API key:");
-            Console.WriteLine("    setup --server-url=<url> --device-id=<deviceId> --api-key=<apiKey>");
-            Console.WriteLine();
-            Console.WriteLine("Registration Example:");
-            Console.WriteLine("  register --server-url=<url> --email=<email> --password=<password> --device-name=<deviceName>");
-            Console.WriteLine();
-            Console.WriteLine("Optional parameter:");
-            Console.WriteLine("  --interval=<seconds>  Interval for metrics collection (default: 10)");
-            Console.WriteLine();
-            Console.WriteLine("Run without arguments to start the monitoring service.");
+            Console.WriteLine($"[ERROR] Command failed: {ex.Message}");
         }
+    }
+
+    private static void PrintUsage()
+    {
+        Console.WriteLine("Monitoring System Client Service");
+        Console.WriteLine();
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  setup              Initialize client configuration");
+        Console.WriteLine("  register           Register a new device");
+        Console.WriteLine("  print-config       Display current configuration");
+        Console.WriteLine("  help               Show this message");
+        Console.WriteLine();
+        Console.WriteLine("Setup Examples:");
+        Console.WriteLine("  Regenerate API key using credentials:");
+        Console.WriteLine("    setup --server-url=<url> --email=<email> --password=<password> --device-id=<id>");
+        Console.WriteLine();
+        Console.WriteLine("  Configure using existing API key:");
+        Console.WriteLine("    setup --server-url=<url> --device-id=<id> --api-key=<key>");
+        Console.WriteLine();
+        Console.WriteLine("Register Example:");
+        Console.WriteLine("  register --server-url=<url> --email=<email> --password=<password> --device-name=<name>");
+        Console.WriteLine();
+        Console.WriteLine("Optional parameter for setup/register:");
+        Console.WriteLine("  --interval=<seconds>  Metrics collection interval (default: 10)");
     }
 }

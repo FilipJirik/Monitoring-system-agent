@@ -5,9 +5,6 @@ using Monitoring_system_client_service.Services;
 
 namespace Monitoring_system_client_service;
 
-/// <summary>
-/// Background worker service that periodically collects and sends metrics to the monitoring server.
-/// </summary>
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
@@ -15,9 +12,6 @@ public class Worker : BackgroundService
     private readonly LinuxMetricsService _metricsService;
     private readonly ConfigModel _config;
 
-    /// <summary>
-    /// Initializes a new instance of the Worker class.
-    /// </summary>
     public Worker(ILogger<Worker> logger, ApiClientService apiClient, LinuxMetricsService metricsService, IOptions<ConfigModel> configOptions)
     {
         _logger = logger;
@@ -26,26 +20,20 @@ public class Worker : BackgroundService
         _config = configOptions.Value;
     }
 
-    /// <summary>
-    /// Executes the background worker service logic.
-    /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Validate configuration
-        if (!ValidateConfiguration())
-        {
+        if (!ValidateConfig())
             return;
-        }
 
         if (!Guid.TryParse(_config.DeviceId, out Guid deviceId))
         {
-            _logger.LogCritical("DeviceId '{DeviceId}' is not a valid GUID. Please run 'setup' or 'register' command first.", _config.DeviceId);
+            _logger.LogCritical("Invalid DeviceId GUID. Run 'setup' or 'register' command first");
             return;
         }
 
-        LogStartupInformation(deviceId);
+        _logger.LogInformation("Agent started - Device: {DeviceId}, Server: {BaseUrl}, Interval: {Interval}s",
+            _config.DeviceId, _config.BaseUrl, _config.IntervalSeconds);
 
-        // Main loop
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -54,96 +42,44 @@ public class Worker : BackgroundService
             }
             catch (OperationCanceledException)
             {
-                _logger.LogDebug("Metrics operation was cancelled");
+                _logger.LogDebug("Operation cancelled");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error occurred while processing metrics");
+                _logger.LogError(ex, "Error processing metrics");
             }
 
-            // Wait before next collection
-            await WaitForNextCycleAsync(stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(_config.IntervalSeconds), stoppingToken);
         }
 
-        _logger.LogInformation("Worker service is stopping.");
+        _logger.LogInformation("Agent stopped");
     }
 
-    /// <summary>
-    /// Validates the configuration is properly set.
-    /// </summary>
-    private bool ValidateConfiguration()
+    private bool ValidateConfig()
     {
         if (string.IsNullOrEmpty(_config.DeviceId) || string.IsNullOrEmpty(_config.ApiKey))
         {
-            _logger.LogCritical("Configuration is invalid. Please run 'setup' or 'register' command first.");
+            _logger.LogCritical("Configuration invalid. Run 'setup' or 'register' command first");
             return false;
         }
-
         return true;
     }
 
-    /// <summary>
-    /// Logs startup information.
-    /// </summary>
-    private void LogStartupInformation(Guid deviceId)
-    {
-        _logger.LogInformation("Agent started for device: {DeviceId}", _config.DeviceId);
-        _logger.LogInformation("Server URL: {ServerUrl}", _config.BaseUrl);
-        _logger.LogInformation("Metrics collection interval: {Interval} seconds", _config.IntervalSeconds);
-    }
-
-    /// <summary>
-    /// Collects metrics and sends them to the server.
-    /// </summary>
     private async Task CollectAndSendMetricsAsync(Guid deviceId, CancellationToken stoppingToken)
     {
-        _logger.LogDebug("Collecting metrics...");
         MetricsModel metrics = await _metricsService.GetMetricsAsync();
 
-        LogCollectedMetrics(metrics);
-
-        _logger.LogInformation(
-            "Sending metrics to server... CPU: {CpuUsage}%, NetIn: {NetworkIn} Kbps",
-            metrics.CpuUsagePercent,
-            metrics.NetworkInKbps);
-
         bool success = await _apiClient.SendMetricsAsync(
-            _config.BaseUrl,
-            deviceId,
-            _config.ApiKey,
-            metrics);
+            _config.BaseUrl, deviceId, _config.ApiKey, metrics);
 
-        if (!success)
+        if (success)
         {
-            _logger.LogWarning("Failed to send metrics to server.");
+            _logger.LogDebug("Metrics sent - CPU: {Cpu}%, RAM: {Ram}MB",
+                metrics.CpuUsagePercent, metrics.RamUsageMb);
         }
         else
         {
-            _logger.LogDebug("Metrics sent successfully.");
+            _logger.LogWarning("Failed to send metrics");
         }
-    }
-
-    /// <summary>
-    /// Logs all collected metric values.
-    /// </summary>
-    private void LogCollectedMetrics(MetricsModel metrics)
-    {
-        _logger.LogDebug(
-            "Metrics collected - CPU: {CpuUsage}%, RAM: {RamUsage}MB, NetIn: {NetworkIn} Kbps, NetOut: {NetworkOut} Kbps, Disk: {DiskUsage}%, Uptime: {Uptime}s",
-            metrics.CpuUsagePercent,
-            metrics.RamUsageMb,
-            metrics.NetworkInKbps,
-            metrics.NetworkOutKbps,
-            metrics.DiskUsagePercent,
-            metrics.UptimeSeconds);
-    }
-
-    /// <summary>
-    /// Waits for the next metrics collection cycle.
-    /// </summary>
-    private async Task WaitForNextCycleAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogDebug("Waiting {Interval} seconds before next metric collection...", _config.IntervalSeconds);
-        await Task.Delay(TimeSpan.FromSeconds(_config.IntervalSeconds), stoppingToken);
     }
 }

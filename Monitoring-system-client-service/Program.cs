@@ -1,124 +1,105 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Monitoring_system_agent.Models;
 using Monitoring_system_agent.Services;
 using Monitoring_system_client_service.CommandHandling;
 using Monitoring_system_client_service.Extensions;
 using Monitoring_system_client_service.Services;
-using Monitoring_system_client_service.Validation;
 using Tomlyn.Extensions.Configuration;
 
-namespace Monitoring_system_client_service
+namespace Monitoring_system_client_service;
+
+public class Program
 {
-    /// <summary>
-    /// Main entry point for the Monitoring System Client Service.
-    /// Handles both command-line operations and background monitoring service.
-    /// </summary>
-    public class Program
+    public static async Task Main(string[] args)
     {
-        public static async Task Main(string[] args)
+        try
         {
-            try
-            {
-                EnvironmentValidator.ThrowIfInvalidPlatform();
+            if (args.Length > 0)
+                await ExecuteCommandAsync(args);
+            else
+                await RunMonitoringServiceAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[CRITICAL] {ex.Message}");
+            Environment.Exit(1);
+        }
+    }
 
-                if (args.Length > 0)
-                {
-                    await ExecuteCommandAsync(args);
-                    return;
-                }
+    private static async Task ExecuteCommandAsync(string[] args)
+    {
+        var services = new ServiceCollection();
 
-                await RunMonitoringServiceAsync(args);
-            }
-            catch (PlatformNotSupportedException ex)
-            {
-                Console.Error.WriteLine($"[ERROR] Platform not supported: {ex.Message}");
-                Environment.Exit(1);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[FATAL] Unhandled error: {ex.Message}");
-                if (!string.IsNullOrEmpty(ex.StackTrace))
-                {
-                    Console.Error.WriteLine($"[DEBUG] Stack trace: {ex.StackTrace}");
-                }
-                Environment.Exit(1);
-            }
+        services.AddLogging(logging =>
+        {
+            logging.AddConsole();
+            logging.SetMinimumLevel(LogLevel.Information);
+        });
+
+        services.AddHttpClient();
+        services.AddSingleton<ApiClientService>();
+        services.AddSingleton<SetupService>();
+        services.AddSingleton<CommandHandler>();
+
+        using var serviceProvider = services.BuildServiceProvider();
+        var commandHandler = serviceProvider.GetRequiredService<CommandHandler>();
+
+        try
+        {
+            await commandHandler.ExecuteCommandAsync(args);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Command failed: {ex.Message}");
+            Environment.Exit(1);
+        }
+    }
+
+    private static async Task RunMonitoringServiceAsync()
+    {
+        if (!File.Exists(ConfigService.FileName))
+        {
+            Console.Error.WriteLine($"[ERROR] Configuration file '{ConfigService.FileName}' not found");
+            Console.Error.WriteLine("[ERROR] Run 'setup' or 'register' command first");
+            Environment.Exit(1);
         }
 
-        /// <summary>
-        /// Executes a command-line command.
-        /// </summary>
-        private static async Task ExecuteCommandAsync(string[] args)
+        var builder = Host.CreateApplicationBuilder();
+        
+        builder.Configuration.Sources.Clear();
+        builder.Configuration.AddTomlFile(ConfigService.FileName, optional: false, reloadOnChange: true);
+        
+        // Configure TOML snake_case to C# PascalCase property binding
+        builder.Services.Configure<ConfigModel>(options =>
         {
-            Console.WriteLine("[DEBUG] Initializing command execution mode...");
-            
-            var services = new ServiceCollection();
-            services.AddSetupServices();
+            var section = builder.Configuration;
+            if (section["base_url"] is string baseUrl)
+                options.BaseUrl = baseUrl;
+            if (section["device_id"] is string deviceId)
+                options.DeviceId = deviceId;
+            if (section["api_key"] is string apiKey)
+                options.ApiKey = apiKey;
+            if (section["interval_seconds"] is string intervalStr && int.TryParse(intervalStr, out int interval))
+                options.IntervalSeconds = interval;
+        });
 
-            using var serviceProvider = services.BuildServiceProvider();
-            var commandHandler = serviceProvider.GetRequiredService<CommandHandler>();
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-            Console.WriteLine($"[DEBUG] Executing command: {args[0]}");
-            await commandHandler.ExecuteAsync(args);
-        }
+        builder.Services.AddHttpClient();
+        builder.Services.AddSingleton<ApiClientService>();
+        builder.Services.AddSingleton<LinuxMetricsService>();
+        builder.Services.AddHostedService<Worker>();
 
-        /// <summary>
-        /// Runs the monitoring service as a background worker.
-        /// </summary>
-        private static async Task RunMonitoringServiceAsync(string[] args)
-        {
-            Console.WriteLine("[INFO] Initializing monitoring service...");
-            
-            ValidateConfigurationExists();
+        var host = builder.Build();
+        var config = host.Services.GetRequiredService<IOptions<ConfigModel>>().Value;
+        var logger = host.Services.GetRequiredService<ILogger<Program>>();
 
-            var builder = Host.CreateApplicationBuilder(args);
+        logger.LogInformation("Configuration loaded - Server: {BaseUrl}, Device: {DeviceId}",
+            config.BaseUrl, config.DeviceId);
 
-            Console.WriteLine("[DEBUG] Configuring services...");
-            ConfigureServices(builder);
-
-            var host = builder.Build();
-            
-            Console.WriteLine("[INFO] Starting monitoring service...");
-            await host.RunAsync();
-        }
-
-        /// <summary>
-        /// Validates that the configuration file exists.
-        /// </summary>
-        private static void ValidateConfigurationExists()
-        {
-            if (!File.Exists(ConfigService.FileName))
-            {
-                throw new FileNotFoundException(
-                    $"Configuration file '{ConfigService.FileName}' not found. " +
-                    $"Please run 'setup' or 'register' command first.");
-            }
-            Console.WriteLine($"[DEBUG] Configuration file found: {ConfigService.FileName}");
-        }
-
-        /// <summary>
-        /// Configures host services and logging.
-        /// </summary>
-        private static void ConfigureServices(HostApplicationBuilder builder)
-        {
-            // Add systemd integration for Linux service management
-            builder.Services.AddSystemd();
-
-            // Add monitoring-specific services
-            builder.Services.AddMonitoringServices();
-
-            // Configure application configuration
-            builder.Configuration.Sources.Clear();
-            builder.Configuration.AddTomlFile(
-                ConfigService.FileName,
-                optional: false,
-                reloadOnChange: true);
-
-            // Configure logging
-            builder.Logging.ClearProviders();
-            builder.Logging.AddConsole();
-            builder.Logging.AddSystemdConsole();
-
-            Console.WriteLine("[DEBUG] Services and logging configured");
-        }
+        await host.RunAsync();
     }
 }

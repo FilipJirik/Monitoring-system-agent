@@ -2,15 +2,26 @@ using Monitoring_system_client_service.Services;
 
 namespace Monitoring_system_client_service.CommandHandling
 {
+    /// <summary>
+    /// Handler for command-line interface operations.
+    /// </summary>
     public class CommandHandler
     {
         private readonly SetupService _setupService;
 
+        /// <summary>
+        /// Initializes a new instance of the CommandHandler class.
+        /// </summary>
+        /// <param name="setupService">Service for handling setup operations</param>
         public CommandHandler(SetupService setupService)
         {
             _setupService = setupService;
         }
 
+        /// <summary>
+        /// Executes a command based on the provided arguments.
+        /// </summary>
+        /// <param name="args">Command-line arguments</param>
         public async Task ExecuteAsync(string[] args)
         {
             if (args.Length == 0)
@@ -21,28 +32,44 @@ namespace Monitoring_system_client_service.CommandHandling
 
             string command = args[0].ToLowerInvariant();
 
-            switch (command)
+            try
             {
-                case "setup":
-                case "login":
-                    await _setupService.RunSetupAsync(args);
-                    break;
-                case "register":
-                    await _setupService.RunCreateDeviceAsync(args);
-                    break;
-                case "print-config":
-                    _setupService.PrintConfig();
-                    break;
-                case "help":
-                    PrintUsage();
-                    break;
-                default:
-                    Console.WriteLine($"Unknown command: {command}");
-                    PrintUsage();
-                    break;
+                switch (command)
+                {
+                    case "setup":
+                    case "login":
+                        await _setupService.RunSetupAsync(args);
+                        break;
+                    case "register":
+                        await _setupService.RunCreateDeviceAsync(args);
+                        break;
+                    case "print-config":
+                        _setupService.PrintConfig();
+                        break;
+                    case "help":
+                    case "--help":
+                    case "-h":
+                        PrintUsage();
+                        break;
+                    default:
+                        Console.WriteLine($"[ERROR] Unknown command: {command}");
+                        PrintUsage();
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Command execution failed: {ex.Message}");
+                if (!string.IsNullOrEmpty(ex.StackTrace))
+                {
+                    Console.WriteLine($"[DEBUG] Stack trace: {ex.StackTrace}");
+                }
             }
         }
 
+        /// <summary>
+        /// Displays usage information and available commands.
+        /// </summary>
         private static void PrintUsage()
         {
             Console.WriteLine("Monitoring System Client Service");

@@ -1,14 +1,27 @@
 ﻿using System.Linq;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 
 namespace Monitoring_system_client_service.Services;
 
 /// <summary>
-/// Service for retrieving device registration information such as IP and MAC addresses.
+/// Service for retrieving system and device information.
 /// </summary>
-public static class DeviceRegistrationService
+public static class SystemInfoService
 {
+    /// <summary>
+    /// Gets the hostname from the DNS server.
+    /// </summary>
+    /// <returns>Hostname</returns>
+    public static string GetHostName() => System.Net.Dns.GetHostName();
+
+    /// <summary>
+    /// Gets the operating system description.
+    /// </summary>
+    /// <returns>OS description</returns>
+    public static string GetOsDescription() => RuntimeInformation.OSDescription;
+
     /// <summary>
     /// Retrieves the local IPv4 address of the device.
     /// </summary>
@@ -25,7 +38,10 @@ public static class DeviceRegistrationService
                     return ip.ToString();
             }
         }
-        catch { }
+        catch
+        {
+            // Fallback to localhost if unable to determine
+        }
         return "127.0.0.1";
     }
 
@@ -45,7 +61,10 @@ public static class DeviceRegistrationService
             if (nic != null) 
                 return nic.GetPhysicalAddress().ToString();
         }
-        catch { }
+        catch
+        {
+            // Fallback to placeholder if unable to determine
+        }
         return "00:00:00:00:00:00";
     }
 }

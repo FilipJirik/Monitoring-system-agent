@@ -1,26 +1,26 @@
 ﻿using Monitoring_system_agent.Models;
 using Monitoring_system_agent.Services;
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 
 namespace Monitoring_system_client_service.Services;
 
+/// <summary>
+/// Service for handling device setup, registration, and configuration management.
+/// </summary>
 public class SetupService
 {
     private readonly ApiClientService _apiClient;
-    private readonly IConfiguration _config;
-    public SetupService(ApiClientService apiClient, IConfiguration config)
+
+    public SetupService(ApiClientService apiClient)
     {
         _apiClient = apiClient;
-        _config = config;
     }
 
     /// <summary>
     /// Runs the setup process by parsing command-line arguments and configuring the agent.
+    /// Supports two modes:
+    /// 1. Login with credentials and device ID to regenerate API key
+    /// 2. Direct configuration with device ID and API key
     /// </summary>
     /// <param name="args">Command-line arguments containing server URL, credentials, and device information</param>
     public async Task RunSetupAsync(string[] args)
@@ -30,51 +30,74 @@ public class SetupService
         var argsDict = ParseArgs(args.Skip(1).ToArray());
         Console.WriteLine($"[DEBUG] Parsed {argsDict.Count} arguments");
 
-        int? interval = null;
+        int? interval = ExtractInterval(argsDict);
 
+        if (TryLoginWithCredentialsAndDeviceId(argsDict, interval))
+        {
+            return;
+        }
+
+        if (TrySetupWithApiKey(argsDict, interval))
+        {
+            return;
+        }
+
+        Console.WriteLine("[ERROR] Invalid arguments. Expected one of:");
+        Console.WriteLine("  1. --server-url --email --password --device-id [--interval]");
+        Console.WriteLine("  2. --server-url --device-id --api-key [--interval]");
+    }
+
+    private int? ExtractInterval(Dictionary<string, string?> argsDict)
+    {
         if (argsDict.TryGetValue("interval", out var intervalStr) 
             && int.TryParse(intervalStr, out int i))
         {
-            interval = i;
-            Console.WriteLine($"[DEBUG] Interval set to {interval} seconds");
+            Console.WriteLine($"[DEBUG] Interval set to {i} seconds");
+            return i;
+        }
+        return null;
+    }
+
+    private bool TryLoginWithCredentialsAndDeviceId(Dictionary<string, string?> argsDict, int? interval)
+    {
+        if (!argsDict.TryGetValue("server-url", out var serverUrl) ||
+            !argsDict.TryGetValue("email", out var email) ||
+            !argsDict.TryGetValue("password", out var password) ||
+            !argsDict.TryGetValue("device-id", out var deviceId))
+        {
+            return false;
         }
 
-        if (argsDict.TryGetValue("server-url", out var serverUrl) &&
-            argsDict.TryGetValue("email", out var email) &&
-            argsDict.TryGetValue("password", out var password) &&
-            argsDict.TryGetValue("device-id", out var deviceId))
+        if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(email) || 
+            string.IsNullOrEmpty(password) || string.IsNullOrEmpty(deviceId))
         {
-            if (string.IsNullOrEmpty(serverUrl) ||
-                string.IsNullOrEmpty(email) ||
-                string.IsNullOrEmpty(password) ||
-                string.IsNullOrEmpty(deviceId))
-            {
-                Console.WriteLine("[ERROR] Unable to find passed arguments");
-                return;
-            }
+            Console.WriteLine("[ERROR] Unable to find passed arguments");
+            return false;
+        }
 
-            Console.WriteLine("[DEBUG] Setup mode: Login with device ID");
-            await TryLoginWithDeviceId(serverUrl, email, password, deviceId, interval);
-        }
-        else if (argsDict.TryGetValue("server-url", out var serverUri) && 
-                argsDict.TryGetValue("device-id", out var deviceIdArg) &&
-                argsDict.TryGetValue("api-key", out var apiKey))
-        {
-            if (string.IsNullOrEmpty(serverUri) ||
-                string.IsNullOrEmpty(deviceIdArg) ||
-                string.IsNullOrEmpty(apiKey))
-            {
-                Console.WriteLine("[ERROR] Unable to find passed arguments");
-                return;
-            }
+        Console.WriteLine("[DEBUG] Setup mode: Login with credentials and device ID");
+        _ = TryLoginWithDeviceId(serverUrl, email, password, deviceId, interval).Result;
+        return true;
+    }
 
-            Console.WriteLine("[DEBUG] Setup mode: Direct API key configuration");
-            await TryLoginWithApiKey(serverUri, deviceIdArg, apiKey, interval);
-        }
-        else
+    private bool TrySetupWithApiKey(Dictionary<string, string?> argsDict, int? interval)
+    {
+        if (!argsDict.TryGetValue("server-url", out var serverUrl) ||
+            !argsDict.TryGetValue("device-id", out var deviceId) ||
+            !argsDict.TryGetValue("api-key", out var apiKey))
         {
-            Console.WriteLine("[ERROR] Invalid arguments. Please provide server-url and credentials.");
+            return false;
         }
+
+        if (string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(apiKey))
+        {
+            Console.WriteLine("[ERROR] Unable to find passed arguments");
+            return false;
+        }
+
+        Console.WriteLine("[DEBUG] Setup mode: Direct API key configuration");
+        _ = TryLoginWithApiKey(serverUrl, deviceId, apiKey, interval).Result;
+        return true;
     }
 
     /// <summary>
@@ -123,8 +146,8 @@ public class SetupService
 
             string hostName = System.Net.Dns.GetHostName();
             string osDescription = RuntimeInformation.OSDescription; 
-            string ipAddress = DeviceRegistrationService.GetLocalIpAddress();
-            string macAddress = DeviceRegistrationService.GetMacAddress();
+            string ipAddress = SystemInfoService.GetLocalIpAddress();
+            string macAddress = SystemInfoService.GetMacAddress();
 
             Console.WriteLine($"[DEBUG] Device details - HostName: {hostName}, IP: {ipAddress}, MAC: {macAddress}");
 

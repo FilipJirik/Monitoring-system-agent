@@ -54,11 +54,11 @@ public class SetupService
         string ipAddress = SystemInfoService.GetLocalIpAddress();
         string macAddress = SystemInfoService.GetMacAddress();
 
-        var newDevice = await _apiClient.CreateDeviceAsync(
+        var deviceWithApiKey = await _apiClient.CreateDeviceAsync(
             deviceName, osDescription, ipAddress, macAddress,
             loginInfo.Token, serverUrl);
 
-        if (newDevice == null)
+        if (deviceWithApiKey == null)
         {
             Console.WriteLine("[ERROR] Failed to create device");
             return;
@@ -67,8 +67,8 @@ public class SetupService
         var config = new ConfigModel
         {
             BaseUrl = serverUrl,
-            DeviceId = newDevice.Id.ToString(),
-            ApiKey = newDevice.ApiKey,
+            DeviceId = deviceWithApiKey.Id.ToString(),
+            ApiKey = deviceWithApiKey.ApiKey,
         };
 
         if (argsDict.TryGetValue("interval", out var intervalStr) &&
@@ -112,8 +112,8 @@ public class SetupService
             return false;
         }
 
-        var device = await _apiClient.GetApiKeyByIdAsync(id, loginInfo.Token, serverUrl);
-        if (device == null)
+        var deviceWithApiKey = await _apiClient.GetApiKeyByIdAsync(id, loginInfo.Token, serverUrl);
+        if (deviceWithApiKey == null)
         {
             Console.WriteLine("[ERROR] Device not found or failed to regenerate API key");
             return false;
@@ -122,8 +122,8 @@ public class SetupService
         var config = new ConfigModel
         {
             BaseUrl = serverUrl,
-            DeviceId = device.Id.ToString(),
-            ApiKey = device.ApiKey,
+            DeviceId = deviceWithApiKey.Id.ToString(),
+            ApiKey = deviceWithApiKey.ApiKey,
         };
 
         if (args.TryGetValue("interval", out var intervalStr) &&

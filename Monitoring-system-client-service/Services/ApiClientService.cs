@@ -39,7 +39,7 @@ public class ApiClientService
         }
     }
 
-    public async Task<DeviceModel?> GetApiKeyByIdAsync(Guid deviceId, string jwtToken, string baseUrl)
+    public async Task<DeviceWithApiKeyModel?> GetApiKeyByIdAsync(Guid deviceId, string jwtToken, string baseUrl)
     {
         var httpClient = _httpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
@@ -49,7 +49,7 @@ public class ApiClientService
         {
             var result = await httpClient.GetAsync(endpoint);
             return result.IsSuccessStatusCode
-                ? await result.Content.ReadFromJsonAsync<DeviceModel>()
+                ? await result.Content.ReadFromJsonAsync<DeviceWithApiKeyModel>()
                 : null;
         }
         catch (Exception ex)
@@ -59,7 +59,7 @@ public class ApiClientService
         }
     }
 
-    public async Task<DeviceModel?> CreateDeviceAsync(string name, string os, string ip, string mac, string jwtToken, string baseUrl)
+    public async Task<DeviceWithApiKeyModel?> CreateDeviceAsync(string name, string os, string ip, string mac, string jwtToken, string baseUrl)
     {
         var httpClient = _httpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
@@ -78,7 +78,7 @@ public class ApiClientService
         {
             var result = await httpClient.PostAsJsonAsync(endpoint, createModel);
             return result.IsSuccessStatusCode
-                ? await result.Content.ReadFromJsonAsync<DeviceModel>()
+                ? await result.Content.ReadFromJsonAsync<DeviceWithApiKeyModel>()
                 : null;
         }
         catch (Exception ex)

@@ -5,6 +5,7 @@ using Monitoring_system_agent.Services;
 using Monitoring_system_client_service.CommandHandling;
 using Monitoring_system_client_service.Extensions;
 using Monitoring_system_client_service.Services;
+using System.Runtime.InteropServices;
 using Tomlyn.Extensions.Configuration;
 
 namespace Monitoring_system_client_service;
@@ -13,6 +14,11 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            Console.Error.WriteLine($"[CRITICAL] This program only works on linux machines.");
+            Environment.Exit(1);
+        }
         try
         {
             if (args.Length > 0)

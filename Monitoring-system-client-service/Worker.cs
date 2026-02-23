@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Options;
-using Monitoring_system_agent.Models;
-using Monitoring_system_agent.Services;
+using Monitoring_system_client_service.Models;
 using Monitoring_system_client_service.Services;
 
 namespace Monitoring_system_client_service;

@@ -1,3 +1,4 @@
+using Monitoring_system_client_service.Configuration;
 using Monitoring_system_client_service.Services;
 
 namespace Monitoring_system_client_service.CommandHandling;
@@ -19,15 +20,18 @@ public class CommandHandler
             return;
         }
 
+        string command = args[0].ToLower();
+        var options = CliParser.Parse(args.Skip(1).ToArray());
+
         try
         {
-            switch (args[0].ToLowerInvariant())
+            switch (command)
             {
                 case "setup":
-                    await _setupService.RunSetupAsync(args);
+                    await _setupService.RunSetupAsync(options);
                     break;
                 case "register":
-                    await _setupService.RunRegisterAsync(args);
+                    await _setupService.RunRegisterAsync(options);
                     break;
                 case "print-config":
                     _setupService.PrintConfig();
@@ -38,20 +42,19 @@ public class CommandHandler
                     PrintUsage();
                     break;
                 default:
-                    Console.WriteLine($"[ERROR] Unknown command: {args[0]}, run help");
+                    Console.WriteLine($"[ERROR] Unknown command: '{command}'. Run 'help' for usage.");
                     PrintUsage();
                     break;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Command failed: {ex.Message}");
+            Console.WriteLine($"[ERROR] Command '{command}' failed: {ex.Message}");
         }
     }
-
     private static void PrintUsage()
     {
-        Console.WriteLine("""
+        Console.WriteLine($"""
     Monitoring System Client Service
 
     USAGE:
@@ -75,12 +78,12 @@ public class CommandHandler
         register --server-url=<url> --email=<email> --password=<password> --device-name=<name>
 
     GLOBAL OPTIONS:
-      --interval=<seconds>   Metrics collection interval (default: 10). 
+      --interval=<seconds>   Metrics collection interval (default: 10).
                              Can be appended to any 'setup' or 'register' command.
 
     NOTES:
       * An existing account on the backend server is required (valid email & password).
-      * The active configuration is saved locally in 'agent_config.toml'.
+      * The active configuration is saved locally in '{ConfigService.FileName}'.
     """);
     }
 }

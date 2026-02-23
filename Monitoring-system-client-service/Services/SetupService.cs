@@ -1,5 +1,5 @@
-﻿using Monitoring_system_agent.Models;
-using Monitoring_system_agent.Services;
+﻿using Monitoring_system_client_service.Configuration;
+using Monitoring_system_client_service.Models;
 using System.Runtime.InteropServices;
 
 namespace Monitoring_system_client_service.Services;
@@ -13,14 +13,12 @@ public class SetupService
         _apiClient = apiClient;
     }
 
-    public async Task RunSetupAsync(string[] args)
+    public async Task RunSetupAsync(Dictionary<string, string?> args)
     {
-        var argsDict = ParseArgs(args.Skip(1).ToArray());
-
-        if (await TrySetupWithCredentials(argsDict))
+        if (await TrySetupWithCredentials(args))
             return;
 
-        if (await TrySetupWithApiKey(argsDict))
+        if (TrySetupWithApiKey(args))
             return;
 
         Console.WriteLine("[ERROR] Invalid arguments. Expected one of:");
@@ -28,46 +26,40 @@ public class SetupService
         Console.WriteLine("  2. --server-url --device-id --api-key [--interval]");
     }
 
-    public async Task RunRegisterAsync(string[] args)
+    public async Task RunRegisterAsync(Dictionary<string, string?> args)
     {
-        var argsDict = ParseArgs(args.Skip(1).ToArray());
-
-        if (!argsDict.TryGetValue("server-url", out var serverUrl) ||
-            !argsDict.TryGetValue("email", out var email) ||
-            !argsDict.TryGetValue("password", out var password) ||
-            !argsDict.TryGetValue("device-name", out var deviceName) ||
-            string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(email) ||
-            string.IsNullOrEmpty(password) || string.IsNullOrEmpty(deviceName))
+        if (!TryGetRequired(args, out var serverUrl, "server-url") ||
+            !TryGetRequired(args, out var email, "email") ||
+            !TryGetRequired(args, out var password, "password") ||
+            !TryGetRequired(args, out var deviceName, "device-name"))
         {
             Console.WriteLine("[ERROR] Missing required arguments for registration");
+            Console.WriteLine("  Required: --server-url --email --password --device-name");
             return;
         }
 
+        // POST /api/auth
         var loginInfo = await _apiClient.LoginAsync(email, password, serverUrl);
         if (loginInfo == null)
         {
-            Console.WriteLine("[ERROR] Login failed");
+            Console.WriteLine("[ERROR] Login failed. Check your credentials and server URL.");
             return;
         }
 
-        string osDescription = RuntimeInformation.OSDescription;
-        string ipAddress = SystemInfoService.GetLocalIpAddress();
-        string macAddress = SystemInfoService.GetMacAddress();
-
-        CreateDeviceModel deviceModel = new()
+        var deviceModel = new CreateDeviceModel
         {
             Name = deviceName,
-            IpAddress = ipAddress,
-            MacAddress = macAddress,
-            OperatingSystem = osDescription,
-            
+            OperatingSystem = RuntimeInformation.OSDescription,
+            IpAddress = SystemInfoService.GetLocalIpAddress(),
+            MacAddress = SystemInfoService.GetMacAddress(),
+            Description = SystemInfoService.GetDeviceDescription(),
+            Model = SystemInfoService.GetHardwareModel(),
+            SshEnabled = SystemInfoService.IsSshEnabled(),
         };
 
-        var deviceWithApiKey = await _apiClient.CreateDeviceAsync(
-            deviceName, osDescription, ipAddress, macAddress,
-            loginInfo, serverUrl);
-
-        if (deviceWithApiKey == null)
+        // POST /api/devices
+        var result = await _apiClient.CreateDeviceAsync(deviceModel, loginInfo.Token, serverUrl);
+        if (result == null)
         {
             Console.WriteLine("[ERROR] Failed to create device");
             return;
@@ -76,15 +68,12 @@ public class SetupService
         var config = new ConfigModel
         {
             BaseUrl = serverUrl,
-            DeviceId = deviceWithApiKey.Id.ToString(),
-            ApiKey = deviceWithApiKey.ApiKey,
+            DeviceId = result.Id.ToString(),
+            ApiKey = result.ApiKey,
         };
 
-        if (argsDict.TryGetValue("interval", out var intervalStr) &&
-            int.TryParse(intervalStr, out int interval))
-            config.IntervalSeconds = interval;
-
-        SaveConfig(config);
+        ApplyOptionalInterval(args, config);
+        SaveAndReport(config);
     }
 
     public void PrintConfig()
@@ -92,7 +81,7 @@ public class SetupService
         string? content = ConfigService.ReadConfig();
         if (content == null)
         {
-            Console.WriteLine("[ERROR] Configuration file not found");
+            Console.WriteLine($"[ERROR] Configuration file '{ConfigService.FileName}' not found");
             return;
         }
         Console.WriteLine(content);
@@ -100,27 +89,27 @@ public class SetupService
 
     private async Task<bool> TrySetupWithCredentials(Dictionary<string, string?> args)
     {
-        if (!args.TryGetValue("server-url", out var serverUrl) ||
-            !args.TryGetValue("email", out var email) ||
-            !args.TryGetValue("password", out var password) ||
-            !args.TryGetValue("device-id", out var deviceId) ||
-            string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(email) ||
-            string.IsNullOrEmpty(password) || string.IsNullOrEmpty(deviceId))
+        if (!TryGetRequired(args, out var serverUrl, "server-url") ||
+            !TryGetRequired(args, out var email, "email") ||
+            !TryGetRequired(args, out var password, "password") ||
+            !TryGetRequired(args, out var deviceId, "device-id"))
             return false;
 
         if (!Guid.TryParse(deviceId, out Guid id))
         {
-            Console.WriteLine("[ERROR] Invalid device ID format");
+            Console.WriteLine("[ERROR] Invalid device ID format. Expected a valid GUID.");
             return false;
         }
 
+        // POST /api/auth
         var loginInfo = await _apiClient.LoginAsync(email, password, serverUrl);
         if (loginInfo == null)
         {
-            Console.WriteLine("[ERROR] Login failed");
+            Console.WriteLine("[ERROR] Login failed. Check your credentials and server URL.");
             return false;
         }
 
+        // POST /api/devices/{id}
         var deviceWithApiKey = await _apiClient.GetApiKeyByIdAsync(id, loginInfo.Token, serverUrl);
         if (deviceWithApiKey == null)
         {
@@ -135,25 +124,20 @@ public class SetupService
             ApiKey = deviceWithApiKey.ApiKey,
         };
 
-        if (args.TryGetValue("interval", out var intervalStr) &&
-            int.TryParse(intervalStr, out int interval))
-            config.IntervalSeconds = interval;
-
-        return SaveConfig(config);
+        ApplyOptionalInterval(args, config);
+        return SaveAndReport(config);
     }
 
-    private async Task<bool> TrySetupWithApiKey(Dictionary<string, string?> args)
+    private bool TrySetupWithApiKey(Dictionary<string, string?> args)
     {
-        if (!args.TryGetValue("server-url", out var serverUrl) ||
-            !args.TryGetValue("device-id", out var deviceId) ||
-            !args.TryGetValue("api-key", out var apiKey) ||
-            string.IsNullOrEmpty(serverUrl) || string.IsNullOrEmpty(deviceId) ||
-            string.IsNullOrEmpty(apiKey))
+        if (!TryGetRequired(args, out var serverUrl, "server-url") ||
+            !TryGetRequired(args, out var deviceId, "device-id") ||
+            !TryGetRequired(args, out var apiKey, "api-key"))
             return false;
 
         if (!Guid.TryParse(deviceId, out _))
         {
-            Console.WriteLine("[ERROR] Invalid device ID format");
+            Console.WriteLine("[ERROR] Invalid device ID format. Expected a valid GUID.");
             return false;
         }
 
@@ -164,37 +148,46 @@ public class SetupService
             ApiKey = apiKey,
         };
 
-        if (args.TryGetValue("interval", out var intervalStr) &&
-            int.TryParse(intervalStr, out int interval))
-            config.IntervalSeconds = interval;
-
-        return SaveConfig(config);
+        ApplyOptionalInterval(args, config);
+        return SaveAndReport(config);
     }
 
-    private bool SaveConfig(ConfigModel model)
+    /// <summary>
+    /// Tries to extract a required argument. Returns false if missing or empty.
+    /// </summary>
+    private static bool TryGetRequired(Dictionary<string, string?> args, out string value, string key)
     {
-        if (ConfigService.SaveConfig(model))
+        if (args.TryGetValue(key, out var raw) && !string.IsNullOrEmpty(raw))
+        {
+            value = raw;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Applies the optional --interval argument to the config if present and valid.
+    /// </summary>
+    private static void ApplyOptionalInterval(Dictionary<string, string?> args, ConfigModel config)
+    {
+        if (args.TryGetValue("interval", out var intervalStr) &&
+            int.TryParse(intervalStr, out int interval) && interval > 0)
+        {
+            config.IntervalSeconds = interval;
+        }
+    }
+
+    private static bool SaveAndReport(ConfigModel config)
+    {
+        if (ConfigService.SaveConfig(config))
         {
             Console.WriteLine("[INFO] Configuration saved successfully");
             return true;
         }
+
         Console.WriteLine("[ERROR] Failed to save configuration");
         return false;
     }
-
-    private static Dictionary<string, string?> ParseArgs(string[] args)
-    {
-        var dict = new Dictionary<string, string?>();
-        foreach (var arg in args)
-        {
-            if (!arg.StartsWith("--"))
-                continue;
-
-            var parts = arg.Substring(2).Split('=', 2);
-            dict[parts[0]] = parts.Length == 2 ? parts[1] : null;
-        }
-        return dict;
-    }
 }
-
-

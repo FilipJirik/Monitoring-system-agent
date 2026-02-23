@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace Monitoring_system_agent.Models;
+namespace Monitoring_system_client_service.Models;
 
 public class MetricsModel
 {

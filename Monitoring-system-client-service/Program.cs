@@ -1,10 +1,9 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting.Systemd;
-using Monitoring_system_agent.Models;
-using Monitoring_system_agent.Services;
-using Monitoring_system_client_service.CommandHandling;
+using Monitoring_system_client_service.Configuration;
+using Monitoring_system_client_service.Models;
 using Monitoring_system_client_service.Services;
+using Monitoring_system_client_service.CommandHandling;
 using System.Runtime.InteropServices;
 using Tomlyn.Extensions.Configuration;
 
@@ -64,40 +63,39 @@ public class Program
 
     private static async Task RunMonitoringServiceAsync()
     {
-        if (!File.Exists(ConfigService.FileName))
-        {
-            Console.Error.WriteLine($"[ERROR] Configuration file '{ConfigService.FileName}' not found");
-            Console.Error.WriteLine("[ERROR] Run 'setup' or 'register' command first");
+        if (!ConfigService.ValidateConfigFileExists())
             Environment.Exit(1);
-        }
 
         var builder = Host.CreateApplicationBuilder();
-        
+
         builder.Configuration.Sources.Clear();
         builder.Configuration.AddTomlFile(ConfigService.FileName, optional: false, reloadOnChange: true);
-        
-        // Configure TOML snake_case to C# PascalCase property binding
-        builder.Services.Configure<ConfigModel>(options =>
-        {
-            var section = builder.Configuration;
-            if (section["base_url"] is string baseUrl)
-                options.BaseUrl = baseUrl;
-            if (section["device_id"] is string deviceId)
-                options.DeviceId = deviceId;
-            if (section["api_key"] is string apiKey)
-                options.ApiKey = apiKey;
-            if (section["interval_seconds"] is string intervalStr && int.TryParse(intervalStr, out int interval))
-                options.IntervalSeconds = interval;
-            if (section["allow_self_signed_certificates"] is string allowSelfSignedStr && bool.TryParse(allowSelfSignedStr, out bool allowSelfSigned))
-                options.AllowSelfSignedCertificates = allowSelfSigned;
-        });
+
+        // Add configuration from TOML file
+        builder.Services.Configure<ConfigModel>(builder.Configuration);
 
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
         builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-        // Register HttpClientFactory for custom certificate handling
-        builder.Services.AddHttpClient();
+        // Configure HttpClient with self-signed certificate 
+        builder.Services.AddHttpClient("default")
+            .ConfigurePrimaryHttpMessageHandler(sp =>
+            {
+                var config = sp.GetRequiredService<IOptions<ConfigModel>>().Value;
+                var handler = new HttpClientHandler
+                {
+                    AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
+                };
+
+                if (config.AllowSelfSignedCertificates)
+                {
+                    handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                }
+
+                return handler;
+            });
+
         builder.Services.AddSingleton<ApiClientService>();
         builder.Services.AddSingleton<LinuxMetricsService>();
         builder.Services.AddHostedService<Worker>();

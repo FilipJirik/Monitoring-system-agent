@@ -1,19 +1,33 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Text.Json.Serialization;
 
-namespace Monitoring_system_agent.Models
+namespace Monitoring_system_client_service.Models;
+
+public class CreateDeviceModel
 {
-    public class CreateDeviceModel
-    {
-        public string Name { get; set; } = default!;
-        public string OperatingSystem { get; set; } = default!;
-        public string IpAddress { get; set; } = default!;
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = default!;
 
-        public string MacAddress { get; set; } = default!;
-        public string Model { get; set; } = default!;
-        public bool SshEnabled { get; set; } = false;
-    }
+    [JsonPropertyName("operatingSystem")]
+    public string OperatingSystem { get; set; } = default!;
+
+    [JsonPropertyName("ipAddress")]
+    public string IpAddress { get; set; } = default!;
+
+    [JsonPropertyName("macAddress")]
+    public string MacAddress { get; set; } = default!;
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("latitude")]
+    public double? Latitude { get; set; }
+
+    [JsonPropertyName("longitude")]
+    public double? Longitude { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("sshEnabled")]
+    public bool? SshEnabled { get; set; }
 }

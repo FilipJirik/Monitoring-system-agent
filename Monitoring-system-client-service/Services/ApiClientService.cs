@@ -1,32 +1,37 @@
-﻿using Monitoring_system_agent.Models;
+﻿using Monitoring_system_client_service.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
-namespace Monitoring_system_agent.Services;
+namespace Monitoring_system_client_service.Services;
 
 public class ApiClientService
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ConfigModel _config;
+    private readonly ILogger<ApiClientService> _logger;
 
-    private const string _authUrl = "/auth/login";
-    private const string _regenerateApiKeyUrl = "/regenerate-api-key";
-    private const string _metricsUrl = "/metrics";
-    private const string _devicesUrl = "/api/devices";
-    private const string _jwtHeader = "Bearer";
-    private const string _apiKeyHeader = "X-API-KEY";
+    private const string HttpClientName = "default";
+    private const string AuthEndpoint = "/auth/login";
+    private const string RegenerateApiKeyEndpoint = "/regenerate-api-key";
+    private const string MetricsEndpoint = "/metrics";
+    private const string DevicesEndpoint = "/api/devices";
+    private const string BearerScheme = "Bearer ";
+    private const string ApiKeyHeader = "X-API-KEY";
 
-    public ApiClientService(IHttpClientFactory httpClientFactory, IOptions<ConfigModel> configOptions)
+    public ApiClientService(
+        IHttpClientFactory httpClientFactory,
+        ILogger<ApiClientService> logger,
+        IOptions<ConfigModel> configOptions)
     {
         _httpClientFactory = httpClientFactory;
-        _config = configOptions.Value;
+        _logger = logger;
     }
 
     public async Task<LoginModel?> LoginAsync(string email, string password, string baseUrl)
     {
         var httpClient = CreateHttpClient();
-        string endpoint = $"{NormalizeUrl(baseUrl)}{_authUrl}";
+        string endpoint = $"{NormalizeUrl(baseUrl)}{AuthEndpoint}";
 
         try
         {
@@ -37,7 +42,7 @@ public class ApiClientService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Login failed: {ex.Message}");
+            _logger.LogError(ex, "Login request to {Endpoint} failed", endpoint);
             return null;
         }
     }
@@ -45,8 +50,8 @@ public class ApiClientService
     public async Task<DeviceWithApiKeyModel?> GetApiKeyByIdAsync(Guid deviceId, string jwtToken, string baseUrl)
     {
         var httpClient = CreateHttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
-        string endpoint = $"{NormalizeUrl(baseUrl)}{_devicesUrl}/{deviceId}{_regenerateApiKeyUrl}";
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(BearerScheme, jwtToken);
+        string endpoint = $"{NormalizeUrl(baseUrl)}{DevicesEndpoint}/{deviceId}{RegenerateApiKeyEndpoint}";
 
         try
         {
@@ -57,28 +62,26 @@ public class ApiClientService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Failed to get API key: {ex.Message}");
+            _logger.LogError(ex, "Failed to get API key for device {DeviceId}", deviceId);
             return null;
         }
     }
 
-    public async Task<DeviceWithApiKeyModel?> CreateDeviceAsync(string name, string os, string ip, string mac, LoginModel loginInfo, string baseUrl)
+    public async Task<DeviceWithApiKeyModel?> CreateDeviceAsync(CreateDeviceModel device, string jwtToken, string baseUrl)
     {
         var httpClient = CreateHttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, loginInfo.Token);
-
-        string endpoint = $"{NormalizeUrl(baseUrl)}{_devicesUrl}";
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(BearerScheme, jwtToken);
+        string endpoint = $"{NormalizeUrl(baseUrl)}{DevicesEndpoint}";
 
         try
         {
-            var result = await httpClient.PostAsJsonAsync(endpoint, loginInfo);
-            
+            var result = await httpClient.PostAsJsonAsync(endpoint, device);
+
             if (!result.IsSuccessStatusCode)
             {
                 string errorContent = await result.Content.ReadAsStringAsync();
-                Console.WriteLine($"[DEBUG] CreateDevice failed with status {result.StatusCode}");
-                Console.WriteLine($"[DEBUG] Error response: {errorContent}");
-                Console.WriteLine($"[DEBUG] Request Body (LoginModel): {System.Text.Json.JsonSerializer.Serialize(loginInfo)}");
+                _logger.LogDebug("CreateDevice failed — Status: {StatusCode}, Response: {Response}",
+                    result.StatusCode, errorContent);
                 return null;
             }
 
@@ -86,7 +89,7 @@ public class ApiClientService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Failed to create device: {ex.Message}");
+            _logger.LogError(ex, "Failed to create device at {Endpoint}", endpoint);
             return null;
         }
     }
@@ -95,9 +98,8 @@ public class ApiClientService
     {
         var httpClient = CreateHttpClient();
         httpClient.DefaultRequestHeaders.Clear();
-        httpClient.DefaultRequestHeaders.Add(_apiKeyHeader, apiKey);
-
-        string endpoint = $"{NormalizeUrl(baseUrl)}{_devicesUrl}/{deviceId}{_metricsUrl}";
+        httpClient.DefaultRequestHeaders.Add(ApiKeyHeader, apiKey);
+        string endpoint = $"{NormalizeUrl(baseUrl)}{DevicesEndpoint}/{deviceId}{MetricsEndpoint}";
 
         try
         {
@@ -106,29 +108,12 @@ public class ApiClientService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Failed to send metrics: {ex.Message}");
+            _logger.LogError(ex, "Failed to send metrics for device {DeviceId}", deviceId);
             return false;
         }
     }
 
-    private HttpClient CreateHttpClient()
-    {
-        var handler = new HttpClientHandler
-        {
-            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
-        };
+    private HttpClient CreateHttpClient() => _httpClientFactory.CreateClient(HttpClientName);
 
-        if (_config.AllowSelfSignedCertificates)
-        {
-            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-        }
-
-        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-    }
-
-    private static string NormalizeUrl(string url)
-    {
-        return url.EndsWith("/") ? url[..^1] : url;
-    }
+    private static string NormalizeUrl(string url) => url.TrimEnd('/');
 }
-

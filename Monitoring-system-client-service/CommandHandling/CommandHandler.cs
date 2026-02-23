@@ -24,7 +24,6 @@ public class CommandHandler
             switch (args[0].ToLowerInvariant())
             {
                 case "setup":
-                case "login":
                     await _setupService.RunSetupAsync(args);
                     break;
                 case "register":
@@ -39,7 +38,7 @@ public class CommandHandler
                     PrintUsage();
                     break;
                 default:
-                    Console.WriteLine($"[ERROR] Unknown command: {args[0]}");
+                    Console.WriteLine($"[ERROR] Unknown command: {args[0]}, run help");
                     PrintUsage();
                     break;
             }
@@ -52,25 +51,36 @@ public class CommandHandler
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Monitoring System Client Service");
-        Console.WriteLine();
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  setup              Initialize client configuration");
-        Console.WriteLine("  register           Register a new device");
-        Console.WriteLine("  print-config       Display current configuration");
-        Console.WriteLine("  help               Show this message");
-        Console.WriteLine();
-        Console.WriteLine("Setup Examples:");
-        Console.WriteLine("  Regenerate API key using credentials:");
-        Console.WriteLine("    setup --server-url=<url> --email=<email> --password=<password> --device-id=<id>");
-        Console.WriteLine();
-        Console.WriteLine("  Configure using existing API key:");
-        Console.WriteLine("    setup --server-url=<url> --device-id=<id> --api-key=<key>");
-        Console.WriteLine();
-        Console.WriteLine("Register Example:");
-        Console.WriteLine("  register --server-url=<url> --email=<email> --password=<password> --device-name=<name>");
-        Console.WriteLine();
-        Console.WriteLine("Optional parameter for setup/register:");
-        Console.WriteLine("  --interval=<seconds>  Metrics collection interval (default: 10)");
+        Console.WriteLine("""
+    Monitoring System Client Service
+
+    USAGE:
+      <command> [options]
+
+    COMMANDS:
+      setup          Initialize client configuration
+      register       Register a new device
+      print-config   Display current configuration
+      help           Show this message
+
+    SETUP EXAMPLES:
+      Regenerate an API key using credentials:
+        setup --server-url=<url> --email=<email> --password=<password> --device-id=<id>
+
+      Configure using an existing API key:
+        setup --server-url=<url> --device-id=<id> --api-key=<key>
+
+    REGISTER EXAMPLE:
+      Register this device to the server (automatically detects device info):
+        register --server-url=<url> --email=<email> --password=<password> --device-name=<name>
+
+    GLOBAL OPTIONS:
+      --interval=<seconds>   Metrics collection interval (default: 10). 
+                             Can be appended to any 'setup' or 'register' command.
+
+    NOTES:
+      * An existing account on the backend server is required (valid email & password).
+      * The active configuration is saved locally in 'agent_config.toml'.
+    """);
     }
 }

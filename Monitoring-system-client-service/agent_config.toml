@@ -5,3 +5,4 @@ base_url = "http://10.0.2.2:8080"
 device_id = ""
 api_key = ""
 interval_seconds = 10
+allow_self_signed_certificates = true

@@ -54,9 +54,18 @@ public class SetupService
         string ipAddress = SystemInfoService.GetLocalIpAddress();
         string macAddress = SystemInfoService.GetMacAddress();
 
+        CreateDeviceModel deviceModel = new()
+        {
+            Name = deviceName,
+            IpAddress = ipAddress,
+            MacAddress = macAddress,
+            OperatingSystem = osDescription,
+            
+        };
+
         var deviceWithApiKey = await _apiClient.CreateDeviceAsync(
             deviceName, osDescription, ipAddress, macAddress,
-            loginInfo.Token, serverUrl);
+            loginInfo, serverUrl);
 
         if (deviceWithApiKey == null)
         {

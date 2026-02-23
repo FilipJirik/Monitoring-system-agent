@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting.Systemd;
 using Monitoring_system_agent.Models;
 using Monitoring_system_agent.Services;
 using Monitoring_system_client_service.CommandHandling;
-using Monitoring_system_client_service.Extensions;
 using Monitoring_system_client_service.Services;
 using System.Runtime.InteropServices;
 using Tomlyn.Extensions.Configuration;
@@ -88,16 +88,22 @@ public class Program
                 options.ApiKey = apiKey;
             if (section["interval_seconds"] is string intervalStr && int.TryParse(intervalStr, out int interval))
                 options.IntervalSeconds = interval;
+            if (section["allow_self_signed_certificates"] is string allowSelfSignedStr && bool.TryParse(allowSelfSignedStr, out bool allowSelfSigned))
+                options.AllowSelfSignedCertificates = allowSelfSigned;
         });
 
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
         builder.Logging.SetMinimumLevel(LogLevel.Information);
 
+        // Register HttpClientFactory for custom certificate handling
         builder.Services.AddHttpClient();
         builder.Services.AddSingleton<ApiClientService>();
         builder.Services.AddSingleton<LinuxMetricsService>();
         builder.Services.AddHostedService<Worker>();
+
+        // Add Systemd support for journald logging
+        builder.Services.AddSystemd();
 
         var host = builder.Build();
         var config = host.Services.GetRequiredService<IOptions<ConfigModel>>().Value;

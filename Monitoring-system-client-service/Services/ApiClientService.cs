@@ -1,4 +1,5 @@
 ﻿using Monitoring_system_agent.Models;
+using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
@@ -7,6 +8,7 @@ namespace Monitoring_system_agent.Services;
 public class ApiClientService
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ConfigModel _config;
 
     private const string _authUrl = "/auth/login";
     private const string _regenerateApiKeyUrl = "/regenerate-api-key";
@@ -15,14 +17,15 @@ public class ApiClientService
     private const string _jwtHeader = "Bearer";
     private const string _apiKeyHeader = "X-API-KEY";
 
-    public ApiClientService(IHttpClientFactory httpClientFactory)
+    public ApiClientService(IHttpClientFactory httpClientFactory, IOptions<ConfigModel> configOptions)
     {
         _httpClientFactory = httpClientFactory;
+        _config = configOptions.Value;
     }
 
     public async Task<LoginModel?> LoginAsync(string email, string password, string baseUrl)
     {
-        var httpClient = _httpClientFactory.CreateClient();
+        var httpClient = CreateHttpClient();
         string endpoint = $"{NormalizeUrl(baseUrl)}{_authUrl}";
 
         try
@@ -41,7 +44,7 @@ public class ApiClientService
 
     public async Task<DeviceWithApiKeyModel?> GetApiKeyByIdAsync(Guid deviceId, string jwtToken, string baseUrl)
     {
-        var httpClient = _httpClientFactory.CreateClient();
+        var httpClient = CreateHttpClient();
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
         string endpoint = $"{NormalizeUrl(baseUrl)}{_devicesUrl}/{deviceId}{_regenerateApiKeyUrl}";
 
@@ -59,27 +62,27 @@ public class ApiClientService
         }
     }
 
-    public async Task<DeviceWithApiKeyModel?> CreateDeviceAsync(string name, string os, string ip, string mac, string jwtToken, string baseUrl)
+    public async Task<DeviceWithApiKeyModel?> CreateDeviceAsync(string name, string os, string ip, string mac, LoginModel loginInfo, string baseUrl)
     {
-        var httpClient = _httpClientFactory.CreateClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, jwtToken);
-
-        var createModel = new CreateDeviceModel
-        {
-            Name = name,
-            OperatingSystem = os,
-            IpAddress = ip,
-            MacAddress = mac
-        };
+        var httpClient = CreateHttpClient();
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(_jwtHeader, loginInfo.Token);
 
         string endpoint = $"{NormalizeUrl(baseUrl)}{_devicesUrl}";
 
         try
         {
-            var result = await httpClient.PostAsJsonAsync(endpoint, createModel);
-            return result.IsSuccessStatusCode
-                ? await result.Content.ReadFromJsonAsync<DeviceWithApiKeyModel>()
-                : null;
+            var result = await httpClient.PostAsJsonAsync(endpoint, loginInfo);
+            
+            if (!result.IsSuccessStatusCode)
+            {
+                string errorContent = await result.Content.ReadAsStringAsync();
+                Console.WriteLine($"[DEBUG] CreateDevice failed with status {result.StatusCode}");
+                Console.WriteLine($"[DEBUG] Error response: {errorContent}");
+                Console.WriteLine($"[DEBUG] Request Body (LoginModel): {System.Text.Json.JsonSerializer.Serialize(loginInfo)}");
+                return null;
+            }
+
+            return await result.Content.ReadFromJsonAsync<DeviceWithApiKeyModel>();
         }
         catch (Exception ex)
         {
@@ -90,7 +93,7 @@ public class ApiClientService
 
     public async Task<bool> SendMetricsAsync(string baseUrl, Guid deviceId, string apiKey, MetricsModel metrics)
     {
-        var httpClient = _httpClientFactory.CreateClient();
+        var httpClient = CreateHttpClient();
         httpClient.DefaultRequestHeaders.Clear();
         httpClient.DefaultRequestHeaders.Add(_apiKeyHeader, apiKey);
 
@@ -106,6 +109,21 @@ public class ApiClientService
             Console.WriteLine($"[ERROR] Failed to send metrics: {ex.Message}");
             return false;
         }
+    }
+
+    private HttpClient CreateHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
+        };
+
+        if (_config.AllowSelfSignedCertificates)
+        {
+            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+        }
+
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
     }
 
     private static string NormalizeUrl(string url)

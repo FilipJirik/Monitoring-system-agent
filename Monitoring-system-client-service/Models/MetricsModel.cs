@@ -30,4 +30,13 @@ public class MetricsModel
 
     [JsonPropertyName("uptimeSeconds")]
     public long? UptimeSeconds { get; set; }
+
+    [JsonPropertyName("processCount")]
+    public int ProcessCount { get; set; }
+
+    [JsonPropertyName("tcpConnectionsCount")]
+    public int TcpConnectionsCount { get; set; }
+
+    [JsonPropertyName("listeningPortsCount")]
+    public int ListeningPortsCount { get; set; }
 }

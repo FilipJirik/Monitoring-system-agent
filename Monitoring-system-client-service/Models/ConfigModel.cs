@@ -6,5 +6,6 @@
         public string DeviceId { get; set; } = "";
         public string ApiKey { get; set; } = "";
         public int IntervalSeconds { get; set; } = 10;
+        public bool AllowSelfSignedCertificates { get; set; } = true;
     }
 }

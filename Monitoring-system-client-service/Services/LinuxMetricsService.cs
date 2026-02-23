@@ -1,6 +1,8 @@
 ﻿using Monitoring_system_agent.Models;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Globalization;
+using System.Net.NetworkInformation;
 
 namespace Monitoring_system_agent.Services;
 
@@ -23,7 +25,11 @@ public class LinuxMetricsService
         var metrics = new MetricsModel
         {
             Timestamp = DateTimeOffset.UtcNow,
-            UptimeSeconds = GetUptime()
+            UptimeSeconds = GetUptime(),
+            // Initialize network to 0 to avoid nulls if desired, or keep as null for first run.
+            // But user says it is null "all the time", let's ensure we try to get it.
+            NetworkInKbps = 0,
+            NetworkOutKbps = 0
         };
 
         try { await ParseCpuUsage(metrics); }
@@ -43,6 +49,11 @@ public class LinuxMetricsService
 
         try { await ParseNetwork(metrics); }
         catch (Exception ex) { _logger.LogError(ex, "Error collecting network stats"); }
+
+        try { CollectProcessAndNetworkMetrics(metrics); }
+        catch (Exception ex) { _logger.LogError(ex, "Error collecting process and network metrics"); }
+
+        // Removed ProcessAndServiceCollector calls as requested
 
         return metrics;
     }
@@ -82,10 +93,10 @@ public class LinuxMetricsService
 
         foreach (var line in lines)
         {
-            if (line.StartsWith("cpu MHz"))
+            if (line.StartsWith("cpu MHz") || line.StartsWith("BogoMIPS")) // BogoMIPS as fallback for some ARM
             {
                 var parts = line.Split(':');
-                if (parts.Length > 1 && double.TryParse(parts[1], NumberStyles.Any, CultureInfo.InvariantCulture, out double mhz))
+                if (parts.Length > 1 && double.TryParse(parts[1].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double mhz))
                 {
                     totalMhz += mhz;
                     coreCount++;
@@ -99,10 +110,34 @@ public class LinuxMetricsService
 
     private async Task ParseCpuTemp(MetricsModel metrics)
     {
-        string path = "/sys/class/thermal/thermal_zone0/temp";
-        if (File.Exists(path))
+        // Try multiple thermal zones
+        for (int i = 0; i < 10; i++)
         {
-            string text = await File.ReadAllTextAsync(path);
+            string path = $"/sys/class/thermal/thermal_zone{i}/temp";
+            string typePath = $"/sys/class/thermal/thermal_zone{i}/type";
+            
+            if (File.Exists(path))
+            {
+                string type = File.Exists(typePath) ? await File.ReadAllTextAsync(typePath) : "";
+                // On many systems, x86_pkg_temp or cpu-thermal are the ones we want
+                if (type.Contains("cpu", StringComparison.OrdinalIgnoreCase) || 
+                    type.Contains("temp", StringComparison.OrdinalIgnoreCase) || 
+                    type.Contains("pkg", StringComparison.OrdinalIgnoreCase))
+                {
+                    string text = await File.ReadAllTextAsync(path);
+                    if (double.TryParse(text.Trim(), out double tempMilli))
+                    {
+                        metrics.CpuTempCelsius = Math.Round(tempMilli / 1000.0, 1);
+                        return; // Found a likely CPU temp
+                    }
+                }
+            }
+        }
+
+        // Fallback to thermal_zone0 if nothing else found
+        if (metrics.CpuTempCelsius == null && File.Exists("/sys/class/thermal/thermal_zone0/temp"))
+        {
+            string text = await File.ReadAllTextAsync("/sys/class/thermal/thermal_zone0/temp");
             if (double.TryParse(text.Trim(), out double tempMilli))
                 metrics.CpuTempCelsius = Math.Round(tempMilli / 1000.0, 1);
         }
@@ -131,7 +166,7 @@ public class LinuxMetricsService
 
     private void ParseDisk(MetricsModel metrics)
     {
-        var drive = DriveInfo.GetDrives().FirstOrDefault(d => d.Name == "/" && d.IsReady);
+        var drive = DriveInfo.GetDrives().FirstOrDefault(d => (d.Name == "/" || d.Name == "/etc/hosts") && d.IsReady);
         if (drive != null)
         {
             double total = drive.TotalSize;
@@ -155,6 +190,9 @@ public class LinuxMetricsService
             if (parts.Length < 10 || parts[0] == "lo")
                 continue;
 
+            // In some cases if split by ':' didn't work as expected because of lack of space
+            // the bytes might be in parts[1] or parts[2].
+            // Usually it is: [0]: interface, [1]: rx_bytes, ..., [9]: tx_bytes
             if (long.TryParse(parts[1], out long rx)) currentIn += rx;
             if (long.TryParse(parts[9], out long tx)) currentOut += tx;
         }
@@ -164,7 +202,7 @@ public class LinuxMetricsService
         if (_lastCollectionTime != DateTimeOffset.MinValue)
         {
             double seconds = (now - _lastCollectionTime).TotalSeconds;
-            if (seconds > 0)
+            if (seconds > 1) // Ensure at least 1 second passed to avoid spikes
             {
                 long deltaIn = Math.Max(0, currentIn - _prevNetInBytes);
                 long deltaOut = Math.Max(0, currentOut - _prevNetOutBytes);
@@ -189,6 +227,24 @@ public class LinuxMetricsService
         catch
         {
             return null;
+        }
+    }
+
+    private void CollectProcessAndNetworkMetrics(MetricsModel metrics)
+    {
+        // Collect process count
+        metrics.ProcessCount = Process.GetProcesses().Length;
+
+        // Collect TCP connections and listening ports using IPGlobalProperties
+        try
+        {
+            var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
+            metrics.TcpConnectionsCount = ipGlobalProperties.GetActiveTcpConnections().Length;
+            metrics.ListeningPortsCount = ipGlobalProperties.GetActiveTcpListeners().Length;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error collecting TCP metrics");
         }
     }
 }

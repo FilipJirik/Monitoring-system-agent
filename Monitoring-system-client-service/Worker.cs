@@ -31,6 +31,11 @@ public class Worker : BackgroundService
             return;
         }
 
+        if (_config.AllowSelfSignedCertificates)
+        {
+            _logger.LogWarning("SSL certificate verification is DISABLED. Self-signed certificates will be accepted.");
+        }
+
         _logger.LogInformation("Agent started - Device: {DeviceId}, Server: {BaseUrl}, Interval: {Interval}s",
             _config.DeviceId, _config.BaseUrl, _config.IntervalSeconds);
 

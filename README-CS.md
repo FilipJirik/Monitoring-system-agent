@@ -87,9 +87,7 @@ Při vytvoření nového zařízení nebo regeneraci API klíče ve webové apli
   --api-key=vygenerovany-api-klic
 ```
 
-> **Poznámka:** Název binárního souboru v příkazu se může lišit od staženého souboru. Ujistěte se, že se v terminálu nacházíte ve složce, do které jste binární soubor stáhli nebo nainstalovali (např. pomocí příkazu `cd /opt/monitoring-agent`).
-
-Hotovo — konfigurace je uložena a agent je připraven ke spuštění.
+> **Poznámka:** Název binárního souboru v příkazu se může lišit od staženého souboru. Ujistěte se, že se v terminálu nacházíte ve složce, do které jste binární soubor nainstalovali (např. pomocí příkazu `cd /opt/monitoring-agent`).
 
 #### Varianta B: Registrace nového zařízení přes CLI
 

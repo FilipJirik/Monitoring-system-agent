@@ -28,6 +28,7 @@ public class LinuxMetricsService
     private const string ProcUptimePath = "/proc/uptime";
     private const string ProcNetDevPath = "/proc/net/dev";
     private const string ThermalZoneBasePathTemplate = "/sys/class/thermal/thermal_zone";
+    private const string HwmonBasePath = "/sys/class/hwmon";
 
     // /proc/stat parsing constants
     private const int CpuLineIdleFieldIndex = 4;
@@ -44,7 +45,7 @@ public class LinuxMetricsService
     private const string MemAvailableKeyword = "MemAvailable:";
     private const int KiloBytesPerMegaByte = 1024;
 
-    // Thermal zone constants
+    // Maximum number of thermal zones to scan
     private const int MaxThermalZonesToCheck = 10;
 
     // /proc/net/dev parsing constants
@@ -160,58 +161,42 @@ public class LinuxMetricsService
     }
 
     /// <summary>
-    /// Collects CPU temperature from /sys/class/thermal thermal zone files.
-    /// Attempts to find a CPU-specific thermal sensor, falls back to thermal_zone0.
+    /// Collects CPU temperature from /sys/class/hwmon or /sys/class/thermal.
+    /// Tries hwmon first (modern drivers), then falls back to thermal zones.
     /// </summary>
     private async Task CollectCpuTemperatureAsync(MetricsModel metrics)
     {
-        // Search thermal zones for a CPU-related sensor
-        for (int i = 0; i < MaxThermalZonesToCheck; i++)
+        // Try /sys/class/hwmon first — used by coretemp (Intel), k10temp (AMD), etc.
+        if (Directory.Exists(HwmonBasePath))
         {
-            string tempPath = $"{ThermalZoneBasePathTemplate}{i}/temp";
-            string typePath = $"{ThermalZoneBasePathTemplate}{i}/type";
-
-            if (!File.Exists(tempPath))
-                continue;
-
-            try
+            foreach (string hwmonDir in Directory.GetDirectories(HwmonBasePath))
             {
-                string zoneType = File.Exists(typePath) ? await File.ReadAllTextAsync(typePath) : "";
-
-                bool isCpuSensor = zoneType.Contains("cpu", StringComparison.OrdinalIgnoreCase)
-                                || zoneType.Contains("pkg", StringComparison.OrdinalIgnoreCase)
-                                || zoneType.Contains("temp", StringComparison.OrdinalIgnoreCase);
-
-                if (!isCpuSensor)
+                string[] tempFiles = Directory.GetFiles(hwmonDir, "temp*_input");
+                if (tempFiles.Length == 0)
                     continue;
 
-                string tempContent = await File.ReadAllTextAsync(tempPath);
+                Array.Sort(tempFiles);
+                string tempContent = (await File.ReadAllTextAsync(tempFiles[0])).Trim();
                 if (TryReadTemperature(tempContent, out double celsius))
                 {
                     metrics.CpuTempCelsius = celsius;
                     return;
                 }
             }
-            catch
-            {
-                // Try next thermal zone
-                continue;
-            }
         }
 
-        // Fallback: thermal_zone0
-        string fallbackPath = $"{ThermalZoneBasePathTemplate}0/temp";
-        if (metrics.CpuTempCelsius == null && File.Exists(fallbackPath))
+        // Fallback: /sys/class/thermal/thermal_zoneN
+        for (int i = 0; i < MaxThermalZonesToCheck; i++)
         {
-            try
+            string tempPath = $"{ThermalZoneBasePathTemplate}{i}/temp";
+            if (!File.Exists(tempPath))
+                continue;
+
+            string tempContent = (await File.ReadAllTextAsync(tempPath)).Trim();
+            if (TryReadTemperature(tempContent, out double celsius))
             {
-                string tempContent = await File.ReadAllTextAsync(fallbackPath);
-                if (TryReadTemperature(tempContent, out double celsius))
-                    metrics.CpuTempCelsius = celsius;
-            }
-            catch
-            {
-                // Unable to read fallback temperature
+                metrics.CpuTempCelsius = celsius;
+                return;
             }
         }
     }

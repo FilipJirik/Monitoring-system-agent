@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-Monitoring_system_client_service-015a1a8b-024e-48e2-861c-2a45e14a514f</UserSecretsId>
     <RootNamespace>Monitoring_system_client_service</RootNamespace>
+    <AssemblyName>monitoring-agent</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

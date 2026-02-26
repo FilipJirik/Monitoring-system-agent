@@ -4,6 +4,10 @@ using Monitoring_system_client_service.Services;
 
 namespace Monitoring_system_client_service;
 
+/// <summary>
+/// Background service that continuously collects system metrics and submits them to the backend.
+/// Runs at regular intervals (configurable via configuration) and handles errors gracefully.
+/// </summary>
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
@@ -11,6 +15,13 @@ public class Worker : BackgroundService
     private readonly LinuxMetricsService _metricsService;
     private readonly ConfigModel _config;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Worker"/> class.
+    /// </summary>
+    /// <param name="logger">Logger for recording metrics collection and submission operations.</param>
+    /// <param name="apiClient">Service for communicating with the backend API.</param>
+    /// <param name="metricsService">Service for collecting system metrics.</param>
+    /// <param name="configOptions">Configuration options for the monitoring agent.</param>
     public Worker(ILogger<Worker> logger, ApiClientService apiClient, LinuxMetricsService metricsService, IOptions<ConfigModel> configOptions)
     {
         _logger = logger;
@@ -19,6 +30,11 @@ public class Worker : BackgroundService
         _config = configOptions.Value;
     }
 
+    /// <summary>
+    /// Executes the background service, continuously collecting and submitting metrics until cancellation is requested.
+    /// </summary>
+    /// <param name="stoppingToken">Cancellation token to signal when the service should stop.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!ValidateConfig())
@@ -59,6 +75,10 @@ public class Worker : BackgroundService
         _logger.LogInformation("Agent stopped");
     }
 
+    /// <summary>
+    /// Validates that the configuration contains required values.
+    /// </summary>
+    /// <returns>True if configuration is valid; false otherwise.</returns>
     private bool ValidateConfig()
     {
         if (string.IsNullOrEmpty(_config.DeviceId) || string.IsNullOrEmpty(_config.ApiKey))
@@ -69,6 +89,12 @@ public class Worker : BackgroundService
         return true;
     }
 
+    /// <summary>
+    /// Collects system metrics and attempts to send them to the backend.
+    /// </summary>
+    /// <param name="deviceId">The device identifier to include in the metrics submission.</param>
+    /// <param name="stoppingToken">Cancellation token for the operation.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
     private async Task CollectAndSendMetricsAsync(Guid deviceId, CancellationToken stoppingToken)
     {
         MetricsModel metrics = await _metricsService.GetMetricsAsync();

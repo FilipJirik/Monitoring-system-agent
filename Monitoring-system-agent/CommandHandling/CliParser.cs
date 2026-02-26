@@ -12,6 +12,12 @@ public static class CliParser
     /// Parses command-line arguments (excluding the command name itself).
     /// Only arguments starting with "--" are recognized; others are ignored.
     /// </summary>
+    /// <param name="args">The command-line arguments to parse.</param>
+    /// <returns>
+    /// A dictionary mapping argument keys to values.
+    /// Keys are the argument name without the "--" prefix.
+    /// Values are the content after "=" if present, or null if "--key" has no "=" separator.
+    /// </returns>
     public static Dictionary<string, string?> Parse(string[] args)
     {
         var result = new Dictionary<string, string?>();

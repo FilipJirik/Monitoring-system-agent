@@ -43,9 +43,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=notify
+Type=simple
 ExecStart=${INSTALL_DIR}/${BINARY_NAME}
 WorkingDirectory=${INSTALL_DIR}
+SyslogIdentifier=${SERVICE_NAME}
+StandardOutput=journal
+StandardError=journal
 Restart=always
 RestartSec=10
 

@@ -212,9 +212,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=notify
+Type=simple
 ExecStart=/opt/monitoring-agent/monitoring-agent
 WorkingDirectory=/opt/monitoring-agent
+SyslogIdentifier=monitoring-agent
+StandardOutput=journal
+StandardError=journal
 Restart=always
 RestartSec=10
 
